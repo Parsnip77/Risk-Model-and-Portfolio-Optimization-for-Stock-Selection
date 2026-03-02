@@ -217,7 +217,7 @@ def main() -> None:
     _ok(f"daily_price  : {df_price.shape[0]:>7,} rows  |  cols: {df_price.columns.tolist()}")
     _ok(f"daily_basic  : {df_basic.shape[0]:>7,} rows  |  cols: {df_basic.columns.tolist()}")
     _ok(f"stock_info   : {len(df_industry):>7,} stocks  "
-        f"|  {df_industry['industry'].nunique()} industries"
+        f"|  {df_industry['industry'].nunique()} industries (Shenwan L1)"
         f"  |  list_date available: {'list_date' in df_industry.columns}")
     _ok(f"adj_factor   : {df_adj.shape[0]:>7,} rows")
     _ok(f"stock_st     : {len(df_st):>7,} ST interval records  "

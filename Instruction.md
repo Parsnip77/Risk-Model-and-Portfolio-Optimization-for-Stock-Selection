@@ -116,7 +116,7 @@
   |------|------|------|
   | `daily_price` | code, date, open, high, low, close, vol, amount | 日线行情，主键 (code, date) |
   | `daily_basic` | code, date, turnover_rate, turnover_rate_f, volume_ratio, pe, pe_ttm, pb, ps, ps_ttm, dv_ratio, dv_ttm, total_share, float_share, free_share, total_mv, circ_mv | 每日扩展基本面（17 字段），主键 (code, date) |
-  | `stock_info` | code, name, industry, list_date | 股票静态信息，主键 code；`list_date` 用于准新股过滤 |
+  | `stock_info` | code, name, industry, list_date | 股票静态信息，主键 code；`industry` 为**申万一级**（来自 Tushare `index_classify(level='L1', src='SW2021')` + `index_member_all`，不可用时回退为 `stock_basic` 的 industry）；`list_date` 用于准新股过滤 |
   | `adj_factor` | code, date, adj_factor | 复权因子（前/后复权计算用），主键 (code, date) |
   | `stock_st` | code, start_date, end_date | ST/\*ST 状态历史区间；end_date 为 NULL 表示仍处于 ST 状态；无 ST 历史的股票写入哨兵行 (start_date='99991231') |
 
@@ -130,7 +130,7 @@
   |------|------|
   | `__init__()` | 初始化 Tushare Pro API，解析数据库路径 |
   | `init_db()` | 建表 + 模式迁移（幂等，可重复调用） |
-  | `download_data()` | 下载 price / extended basic / adj_factor / ST 状态；四套独立缓存，可单独补充缺失数据 |
+  | `download_data()` | 下载 price / extended basic / adj_factor / ST 状态；先拉取 stock_basic（name, list_date），再拉取申万一级行业并合并进 stock_info；四套独立缓存，可单独补充缺失数据 |
   | `fetch_latest_adj_factor(codes)` | 即时调用 Tushare API 获取最新复权因子，供前复权使用 |
   | `load_data()` | 从 SQLite 读取，返回结构化字典（见下） |
 
@@ -140,7 +140,7 @@
     "df_price"    : DataFrame  # MultiIndex (date, code)，列：open, high, low, close, vol, amount
     "df_mv"       : DataFrame  # MultiIndex (date, code)，列：total_mv（向后兼容）
     "df_basic"    : DataFrame  # MultiIndex (date, code)，15 个扩展基本面字段
-    "df_industry" : DataFrame  # index = code，列：name, industry, list_date
+    "df_industry" : DataFrame  # index = code，列：name, industry（申万一级）, list_date
     "df_adj"      : DataFrame  # MultiIndex (date, code)，列：adj_factor
     "df_st"       : DataFrame  # 列：code, start_date, end_date（ST 状态区间）
   }
@@ -311,7 +311,7 @@
   | 文件 | 列 | 说明 |
   |------|----|------|
   | `prices.parquet` | trade_date, ts_code, open, high, low, close, volume, adj_factor, **tradable** | 原始（未复权）行情 + 复权因子 + 可交易性标志（bool） |
-  | `meta.parquet` | trade_date, ts_code, industry, turnover_rate, turnover_rate_f, volume_ratio, pe, pe_ttm, pb, ps, ps_ttm, dv_ratio, dv_ttm, total_share, float_share, free_share, total_mv, circ_mv | 每日扩展基本面（15 字段）+ 静态行业分类 |
+  | `meta.parquet` | trade_date, ts_code, industry, turnover_rate, ... | 每日扩展基本面（15 字段）+ 静态**申万一级**行业 |
   | `factors_raw.parquet` | trade_date, ts_code, alpha006, … | 原始因子值（保留 NaN） |
   | `factors_clean.parquet` | trade_date, ts_code, alpha006, … | 清洗后因子值；**不可交易的股票-日期格子为 NaN**（不再填 0），下游回测 `dropna` 自动排除 |
 

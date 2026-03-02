@@ -5,6 +5,9 @@ Data flow:
     Tushare Pro API  -->  DataEngine.download_data()  -->  SQLite (stock_data.db)
     SQLite           -->  DataEngine.load_data()       -->  pandas DataFrames
 
+Industry in stock_info is Shenwan L1 (SW2021), from index_classify + index_member_all.
+If those APIs are unavailable, download_data falls back to stock_basic's industry field.
+
 Database tables:
     daily_price  : daily OHLCV + amount bars  (PK: code, date)
     daily_basic  : daily fundamentals         (PK: code, date)
@@ -197,6 +200,35 @@ class DataEngine:
         """Map Tushare column names to project conventions."""
         return df.rename(columns={"ts_code": "code", "trade_date": "date"})
 
+    def _fetch_sw_l1_industry_map(self, codes: List[str]):
+        """
+        Build code -> Shenwan L1 industry name via index_classify + index_member_all.
+
+        Returns a pandas Series indexed by ts_code (e.g. 000001.SZ) with industry_name
+        values, or None if the SW L1 APIs fail (caller should fall back to stock_basic).
+        """
+        try:
+            time.sleep(config.SLEEP_PER_CALL)
+            cls_df = self.pro.index_classify(level="L1", src="SW2021")
+            if cls_df is None or cls_df.empty:
+                return None
+            if "index_code" not in cls_df.columns or "industry_name" not in cls_df.columns:
+                return None
+            code_to_industry = {}
+            for _, row in cls_df.iterrows():
+                time.sleep(config.SLEEP_PER_CALL)
+                members = self.pro.index_member_all(l1_code=row["index_code"])
+                if members is not None and not members.empty and "ts_code" in members.columns:
+                    name_col = "l1_name" if "l1_name" in members.columns else "industry_name"
+                    industry_name = row["industry_name"]
+                    for _, m in members.iterrows():
+                        code_to_industry[m["ts_code"]] = industry_name
+            if not code_to_industry:
+                return None
+            return pd.Series(code_to_industry)
+        except Exception:
+            return None
+
     # ------------------------------------------------------------------
     # Download & persist
     # ------------------------------------------------------------------
@@ -212,11 +244,12 @@ class DataEngine:
 
         Steps:
             1. Fetch constituent list via index_weight.
-            2. Fetch stock metadata (name, industry, list_date) via stock_basic.
-            3. For each constituent: fetch daily OHLCV+amount and extended
-               daily fundamentals (15 fields).
-            4. For each constituent: fetch adj_factor history.
-            5. For each constituent: fetch ST status history via stock_st.
+            2. Fetch stock metadata: stock_basic (name, list_date) then Shenwan L1
+               industry via index_classify + index_member_all; fallback to
+               stock_basic industry if SW APIs unavailable.
+            3. For each constituent: daily OHLCV+amount and extended daily_basic.
+            4. For each constituent: adj_factor history.
+            5. For each constituent: ST status via stock_st.
         """
         codes = self._get_constituents()
         print(f"Universe: {len(codes)} stocks  [{config.UNIVERSE_INDEX}]")
@@ -224,18 +257,43 @@ class DataEngine:
 
         conn = sqlite3.connect(self.db_path)
 
-        # ---- Step 1: Stock metadata (name, industry, list_date) ----
-        print("Fetching stock metadata (name, industry, list_date)...")
+        # ---- Step 1a: Stock metadata (name, list_date) ----
+        print("Fetching stock metadata (name, list_date)...")
         info_df = self.pro.stock_basic(
-            fields="ts_code,name,industry,list_date",
+            fields="ts_code,name,list_date",
             list_status="L",
         )
-        if info_df is not None and not info_df.empty:
-            info_df = info_df[info_df["ts_code"].isin(codes)].copy()
-            info_df = self._rename(info_df)
-            conn.execute("DELETE FROM stock_info")
-            info_df.to_sql("stock_info", conn, if_exists="append", index=False)
-            conn.commit()
+        if info_df is None or info_df.empty:
+            conn.close()
+            return
+        info_df = info_df[info_df["ts_code"].isin(codes)].copy()
+        info_df = self._rename(info_df)
+
+        # ---- Step 1b: Shenwan L1 industry (index_classify + index_member_all) ----
+        industry_map = self._fetch_sw_l1_industry_map(codes)
+        if industry_map is not None:
+            info_df["industry"] = info_df["code"].map(industry_map)
+            info_df["industry"] = info_df["industry"].fillna("其他")
+            print("  Industry: Shenwan L1 (SW2021) from index_classify + index_member_all.")
+        else:
+            print("  [WARN] Shenwan L1 APIs unavailable; using stock_basic industry.")
+            full_df = self.pro.stock_basic(
+                fields="ts_code,name,industry,list_date",
+                list_status="L",
+            )
+            if full_df is not None and not full_df.empty:
+                full_df = full_df[full_df["ts_code"].isin(codes)].copy()
+                full_df = self._rename(full_df)
+                info_df["industry"] = info_df["code"].map(
+                    full_df.set_index("code")["industry"]
+                )
+                info_df["industry"] = info_df["industry"].fillna("其他")
+            else:
+                info_df["industry"] = "其他"
+
+        conn.execute("DELETE FROM stock_info")
+        info_df.to_sql("stock_info", conn, if_exists="append", index=False)
+        conn.commit()
 
         # ---- Step 2: Daily price + extended fundamentals per stock ----
         price_cached: set = set(
