@@ -227,6 +227,16 @@ class FactorEngine:
             raw=True,
         )
 
+    def _kurt(self, df: pd.DataFrame, d: int) -> pd.DataFrame:
+        """Rolling d-day excess kurtosis per stock (bias-corrected, Fisher definition).
+        Requires at least 4 valid observations in the window.
+        """
+        return df.rolling(d).apply(
+            lambda x: scipy_stats.kurtosis(x[~np.isnan(x)], bias=False, fisher=True)
+            if len(x[~np.isnan(x)]) >= 4 else np.nan,
+            raw=True,
+        )
+
     def _rolling_ols_resid_std(self, d: int) -> pd.DataFrame:
         """
         Vectorized rolling OLS residual std for IVOL.
@@ -407,6 +417,153 @@ class FactorEngine:
         """
         return self._corr(self._rank(self.close), self._rank(self.vol), d=10)
 
+    def factor_vol_price_corr_20d(self) -> pd.DataFrame:
+        """Volume-price Spearman rank correlation over 20 days."""
+        return self._corr(self._rank(self.close), self._rank(self.vol), d=20)
+
+    def factor_vw_return_5d(self) -> pd.DataFrame:
+        """
+        Volume-weighted return over 5 days:
+            sum(R_t * vol_t, 5) / sum(vol_t, 5)
+        Measures the average return investors actually received per share traded.
+        """
+        num = (self.returns * self.vol).rolling(5).sum()
+        den = self.vol.rolling(5).sum().replace(0, np.nan)
+        return num / den
+
+    def factor_vw_return_10d(self) -> pd.DataFrame:
+        """Volume-weighted return over 10 days."""
+        num = (self.returns * self.vol).rolling(10).sum()
+        den = self.vol.rolling(10).sum().replace(0, np.nan)
+        return num / den
+
+    def factor_vol_oscillator(self) -> pd.DataFrame:
+        """
+        Volume oscillator: VMA5 / VMA20.
+        Values > 1 indicate short-term volume surge vs. medium-term baseline.
+        """
+        vma5  = self.vol.rolling(5).mean()
+        vma20 = self.vol.rolling(20).mean().replace(0, np.nan)
+        return vma5 / vma20
+
+    def factor_net_buy_proxy_5d(self) -> pd.DataFrame:
+        """
+        Net buying proxy over 5 days:
+            mean( (Close - Open) / (High - Low + 1e-6) * Volume, 5 )
+        Approximates directional order flow; positive = net buying pressure.
+        """
+        direction = (self.close - self.open) / (self.high - self.low + 1e-6)
+        return (direction * self.vol).rolling(5).mean()
+
+    def factor_net_buy_proxy_10d(self) -> pd.DataFrame:
+        """Net buying proxy over 10 days."""
+        direction = (self.close - self.open) / (self.high - self.low + 1e-6)
+        return (direction * self.vol).rolling(10).mean()
+
+    def factor_momentum_1d(self) -> pd.DataFrame:
+        """1-day price return: (close - delay(close,1)) / delay(close,1)."""
+        d1 = self._delay(self.close, 1)
+        return (self.close - d1) / d1.replace(0, np.nan)
+
+    def factor_momentum_3d(self) -> pd.DataFrame:
+        """3-day cumulative price return."""
+        d3 = self._delay(self.close, 3)
+        return (self.close - d3) / d3.replace(0, np.nan)
+
+    def factor_momentum_5d(self) -> pd.DataFrame:
+        """5-day cumulative price return."""
+        d5 = self._delay(self.close, 5)
+        return (self.close - d5) / d5.replace(0, np.nan)
+
+    def factor_momentum_10d(self) -> pd.DataFrame:
+        """10-day cumulative price return."""
+        d10 = self._delay(self.close, 10)
+        return (self.close - d10) / d10.replace(0, np.nan)
+
+    def factor_momentum_20d(self) -> pd.DataFrame:
+        """20-day cumulative price return."""
+        d20 = self._delay(self.close, 20)
+        return (self.close - d20) / d20.replace(0, np.nan)
+
+    def factor_trend_strength(self) -> pd.DataFrame:
+        """
+        Trend strength (Information Ratio proxy) over 20 days:
+            cum_ret_20 / sum(|R_t|, 20)
+        High values indicate a smooth directional trend; low values indicate noisy
+        back-and-forth movement.  Ranges from -1 to +1 in theory.
+        """
+        cum_ret = self.factor_momentum_20d()
+        abs_ret_sum = self._sum(self._abs(self.returns), 20).replace(0, np.nan)
+        return cum_ret / abs_ret_sum
+
+    def factor_drawdown_from_high(self) -> pd.DataFrame:
+        """
+        Distance from 60-day high:
+            (close - ts_max(close, 60)) / ts_max(close, 60)
+        Always <= 0; captures how far a stock has fallen from its recent peak.
+        """
+        high60 = self._ts_max(self.close, 60).replace(0, np.nan)
+        return (self.close - high60) / high60
+
+    def factor_bias_5d(self) -> pd.DataFrame:
+        """
+        Price bias from 5-day moving average:
+            close / MA(close, 5) - 1
+        Positive = price above MA (overbought proxy).
+        """
+        ma = self.close.rolling(5).mean().replace(0, np.nan)
+        return self.close / ma - 1
+
+    def factor_bias_10d(self) -> pd.DataFrame:
+        """Price bias from 10-day moving average."""
+        ma = self.close.rolling(10).mean().replace(0, np.nan)
+        return self.close / ma - 1
+
+    def factor_bias_20d(self) -> pd.DataFrame:
+        """Price bias from 20-day moving average."""
+        ma = self.close.rolling(20).mean().replace(0, np.nan)
+        return self.close / ma - 1
+
+    def factor_rvol_5d(self) -> pd.DataFrame:
+        """Realized volatility: rolling 5-day std of daily returns."""
+        return self._stddev(self.returns, 5)
+
+    def factor_rvol_10d(self) -> pd.DataFrame:
+        """Realized volatility: rolling 10-day std of daily returns."""
+        return self._stddev(self.returns, 10)
+
+    def factor_rvol_20d(self) -> pd.DataFrame:
+        """Realized volatility: rolling 20-day std of daily returns (total vol, not residual)."""
+        return self._stddev(self.returns, 20)
+
+    def factor_realized_kurtosis(self) -> pd.DataFrame:
+        """
+        Realized excess kurtosis over 20 days (bias-corrected, Fisher definition).
+        High positive values indicate fat tails / crash risk.
+        """
+        return self._kurt(self.returns, d=20)
+
+    def factor_hl_range(self) -> pd.DataFrame:
+        """
+        Intraday high-low range normalized by close, averaged over 10 days:
+            mean( (High - Low) / Close, 10 )
+        Proxy for realized intraday volatility and liquidity.
+        """
+        close_safe = self.close.replace(0, np.nan)
+        return ((self.high - self.low) / close_safe).rolling(10).mean()
+
+    def factor_downside_vol(self) -> pd.DataFrame:
+        """
+        Downside volatility over 20 days: std of negative daily returns only.
+        More directly captures left-tail risk than total realized volatility.
+        Requires at least 2 negative-return days in the window; otherwise NaN.
+        """
+        def _dsv(x: np.ndarray) -> float:
+            neg = x[x < 0]
+            return float(neg.std(ddof=1)) if len(neg) >= 2 else np.nan
+
+        return self.returns.rolling(20).apply(_dsv, raw=True)
+
     # ==================================================================
     # B — Fundamental and valuation factors
     # ==================================================================
@@ -482,6 +639,66 @@ class FactorEngine:
             return pd.DataFrame(np.nan, index=self.close.index, columns=self.close.columns)
         rolling_mean = self.turnover_rate.rolling(60).mean()
         return self.turnover_rate.div(rolling_mean.replace(0, np.nan))
+
+    def factor_ind_rel_momentum_5d(self) -> pd.DataFrame:
+        """
+        Industry-relative 5-day momentum (difference form):
+            momentum_5d − median(momentum_5d in same SW L1 industry)
+        Controls for sector-level short-term drift.
+        """
+        mom = self.factor_momentum_5d()
+        return self._industry_demean(mom)
+
+    def factor_ind_rel_momentum_10d(self) -> pd.DataFrame:
+        """
+        Industry-relative 10-day momentum (difference form):
+            momentum_10d − median(momentum_10d in same SW L1 industry)
+        """
+        mom = self.factor_momentum_10d()
+        return self._industry_demean(mom)
+
+    def factor_ind_rel_momentum_20d(self) -> pd.DataFrame:
+        """
+        Industry-relative 20-day momentum (difference form):
+            momentum_20d − median(momentum_20d in same SW L1 industry)
+        """
+        mom = self.factor_momentum_20d()
+        return self._industry_demean(mom)
+
+    def factor_ind_rel_turnover_ratio(self) -> pd.DataFrame:
+        """
+        Industry-relative turnover ratio (ratio form):
+            turnover_rate / mean(turnover_rate in same SW L1 industry)
+
+        Unlike factor_industry_rel_turnover (difference), this ratio form is
+        scale-invariant across industries with different average activity levels.
+        """
+        if self.turnover_rate is None:
+            return pd.DataFrame(np.nan, index=self.close.index, columns=self.close.columns)
+        industry_map = self._industry.reindex(self.turnover_rate.columns)
+
+        def ratio_row(row: pd.Series) -> pd.Series:
+            ind_mean = row.groupby(industry_map).transform("mean")
+            return row / ind_mean.replace(0, np.nan)
+
+        return self.turnover_rate.apply(ratio_row, axis=1)
+
+    def factor_ind_rel_vol(self) -> pd.DataFrame:
+        """
+        Industry-relative realized volatility ratio (20-day):
+            rvol_20d / mean(rvol_20d in same SW L1 industry)
+
+        Uses industry mean (not median) as denominator so the ratio is centred
+        around 1 rather than 0, making it directly interpretable as a multiplier.
+        """
+        rvol = self.factor_rvol_20d()
+        industry_map = self._industry.reindex(rvol.columns)
+
+        def ratio_row(row: pd.Series) -> pd.Series:
+            ind_mean = row.groupby(industry_map).transform("mean")
+            return row / ind_mean.replace(0, np.nan)
+
+        return rvol.apply(ratio_row, axis=1)
 
     def _industry_demean(self, wide: pd.DataFrame) -> pd.DataFrame:
         """
