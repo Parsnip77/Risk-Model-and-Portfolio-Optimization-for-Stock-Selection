@@ -1,19 +1,34 @@
 """
 backtester.py
 -------------
-Layered (quantile) backtest module.
+Layered (quantile) backtest module with optional industry-neutral grouping.
 
-Workflow
---------
-1. Cross-sectional binning  : rank stocks by factor each day, qcut into N groups
-2. Portfolio weighting      : equal-weight within each group
-3. Group return series      : groupby(['trade_date', 'group']).mean().unstack()
-4. Long-short spread        : G_N - G_1
-5. Performance metrics      : cumulative return, annualized return, vol, Sharpe, MDD
+Two grouping modes
+------------------
+Standard mode (industry_df=None)
+    Rank all stocks in the full cross-section each day, assign to G1..GN with
+    pd.qcut, compute equal-weight group returns.
+
+Industry-neutral mode (industry_df provided)
+    Step 1 — Intra-industry ranking:
+        Within each (trade_date, industry) cell, rank stocks by their factor
+        value and assign them to intra-industry groups G1..GN using a
+        percentile-rank mapping (robust to industry cells with fewer than N
+        stocks; industries with only 1 stock receive NaN and are excluded).
+    Step 2 — Industry-level group returns:
+        For each (trade_date, industry, group) triplet, compute the
+        equal-weight average forward return of member stocks.
+    Step 3 — Global group returns (Plan B, industry-equal-weight):
+        For each (trade_date, group), average the industry-level group returns
+        across all industries present that day.  This gives every industry
+        equal weight in the group return regardless of its size, making the
+        backtest symmetric with the industry-neutralized training target.
 
 Public API
 ----------
-    bt = LayeredBacktester(factor_df, target_df, num_groups=5, rf=0.03,
+    bt = LayeredBacktester(factor_df, target_df,
+                           industry_df=None,   # optional
+                           num_groups=5, rf=0.03,
                            forward_days=1, plots_dir=None)
     perf_table = bt.run_backtest()   # pd.DataFrame: rows=groups+LS, cols=metrics
     fig        = bt.plot(show=True)  # cumulative NAV chart, saved to plots_dir
@@ -53,6 +68,11 @@ class LayeredBacktester:
         Forward-return labels.  Accepts either:
         - MultiIndex (trade_date, ts_code) with column ``forward_return``
         - Flat DataFrame with columns [trade_date, ts_code, forward_return]
+    industry_df : pd.DataFrame, optional
+        Flat DataFrame with columns [trade_date, ts_code, <industry_col>].
+        Exactly one column other than trade_date / ts_code is expected.
+        When provided, enables industry-neutral grouping (Plan B).
+        When None (default), standard full-cross-section grouping is used.
     num_groups : int
         Number of quantile groups (default 5 → G1 .. G5).
     rf : float
@@ -71,6 +91,7 @@ class LayeredBacktester:
         self,
         factor_df: pd.DataFrame,
         target_df: pd.DataFrame,
+        industry_df: Optional[pd.DataFrame] = None,
         num_groups: int = 5,
         rf: float = 0.03,
         forward_days: int = 1,
@@ -96,13 +117,29 @@ class LayeredBacktester:
         else:
             target_flat = target_df[["trade_date", "ts_code", "forward_return"]].copy()
 
-        # Merge and drop rows with any NaN in the key columns
+        # Merge factor + target
         merged = pd.merge(
             factor_df[["trade_date", "ts_code", self.factor_col]],
             target_flat,
             on=["trade_date", "ts_code"],
             how="inner",
         ).dropna(subset=[self.factor_col, "forward_return"])
+
+        # Optionally merge industry labels
+        self._industry_col: Optional[str] = None
+        if industry_df is not None:
+            ind_extra = [c for c in industry_df.columns if c not in key_cols]
+            if len(ind_extra) != 1:
+                raise ValueError(
+                    f"industry_df must have exactly one non-key column; got {ind_extra}"
+                )
+            self._industry_col = ind_extra[0]
+            merged = pd.merge(
+                merged,
+                industry_df[["trade_date", "ts_code", self._industry_col]],
+                on=["trade_date", "ts_code"],
+                how="left",
+            )
 
         self._merged: pd.DataFrame = merged
 
@@ -114,27 +151,77 @@ class LayeredBacktester:
     # Private helpers
     # ------------------------------------------------------------------
 
+    def _assign_group_robust(self, x: pd.Series) -> pd.Series:
+        """Map factor values to group labels G1..GN via percentile rank.
+
+        Works for any number of stocks >= 2.  Industries with only 1 valid
+        stock return all-NaN (excluded from the group return aggregation).
+        """
+        n = x.notna().sum()
+        if n < 2:
+            return pd.Series(np.nan, index=x.index, dtype=object)
+        pct = x.rank(pct=True, na_option="keep", ascending=True)
+
+        def _label(p: float) -> Optional[str]:
+            if pd.isna(p):
+                return np.nan
+            g = int(min(math.ceil(p * self.num_groups), self.num_groups))
+            return f"G{g}"
+
+        return pct.map(_label)
+
     def _bin_and_group_returns(self) -> pd.DataFrame:
-        """Assign group labels and compute equal-weight group return series."""
+        """Assign group labels and compute group return series.
+
+        Industry-neutral mode (Plan B)
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        1. Rank stocks within (trade_date, industry) → assign intra-industry
+           group G1..GN.
+        2. Average forward_return within (trade_date, industry, group).
+        3. Average those industry-level returns across industries per
+           (trade_date, group) → each industry contributes equally.
+
+        Standard mode
+        ~~~~~~~~~~~~~
+        Full cross-section qcut, equal-weight group returns.
+        """
         if self._group_ret is not None:
             return self._group_ret
 
         df = self._merged.copy()
 
-        def _assign_group(x: pd.Series) -> pd.Categorical:
-            ranked = x.rank(method="first")
-            return pd.qcut(ranked, q=self.num_groups, labels=self.labels)
+        if self._industry_col is not None:
+            # Step 1: intra-industry group assignment
+            df["group"] = (
+                df.groupby(["trade_date", self._industry_col])[self.factor_col]
+                .transform(self._assign_group_robust)
+            )
 
-        df["group"] = df.groupby("trade_date")[self.factor_col].transform(_assign_group)
+            # Step 2 + 3: industry-equal-weight group returns (Plan B)
+            group_ret = (
+                df.dropna(subset=["group"])
+                .groupby(["trade_date", self._industry_col, "group"])["forward_return"]
+                .mean()                                      # step 2: intra-industry group mean
+                .groupby(level=["trade_date", "group"])
+                .mean()                                      # step 3: equal-weight across industries
+                .unstack("group")
+            )
+        else:
+            # Standard mode: full cross-section qcut
+            def _assign_group_std(x: pd.Series) -> pd.Categorical:
+                ranked = x.rank(method="first")
+                return pd.qcut(ranked, q=self.num_groups, labels=self.labels)
 
-        group_ret = (
-            df.groupby(["trade_date", "group"])["forward_return"]
-            .mean()
-            .unstack(level="group")
-        )
-        # Ensure columns are in G1 .. GN order
+            df["group"] = df.groupby("trade_date")[self.factor_col].transform(
+                _assign_group_std
+            )
+            group_ret = (
+                df.groupby(["trade_date", "group"])["forward_return"]
+                .mean()
+                .unstack(level="group")
+            )
+
         group_ret = group_ret.reindex(columns=self.labels)
-
         self._group_ret = group_ret
         return self._group_ret
 
@@ -231,10 +318,12 @@ class LayeredBacktester:
         except Exception:
             dates = pd.to_datetime(nav_df.index, errors="coerce")
 
+        mode_label = "Industry-Neutral" if self._industry_col is not None else "Full Cross-Section"
         fig, ax = plt.subplots(figsize=(13, 6))
         fig.suptitle(
             f"Layered Backtest  —  {self.factor_col}  "
-            f"({self.num_groups} groups,  L-S = {self.labels[-1]} - {self.labels[0]})",
+            f"({self.num_groups} groups,  {mode_label},  "
+            f"L-S = {self.labels[-1]} - {self.labels[0]})",
             fontsize=12,
             fontweight="bold",
         )

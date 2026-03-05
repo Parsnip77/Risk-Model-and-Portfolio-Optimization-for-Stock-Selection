@@ -18,7 +18,7 @@ Workflow
 6.  Per fold: train AlphaLGBM on cs_rank_return, predict test set, record predictions.
 7.  Concatenate all fold predictions; apply 3-day rolling-mean smoothing.
 8.  IC analysis (Spearman IC vs raw forward_return): IC mean / std / ICIR, IC chart.
-9.  Layered backtest  → layered NAV chart (plots/ml_alpha_layered.png).
+9.  Industry-neutral layered backtest (Plan B: industry-equal-weight) → NAV chart.
 10. Net return backtest → net NAV + cost metrics (plots/ml_alpha_net.png).
 11. Average feature importance across folds → bar chart (plots/feature_importance.png).
 12. SHAP beeswarm on last-fold test sample, top-10 features (plots/shap_beeswarm.png).
@@ -71,7 +71,7 @@ PLOTS_DIR   = _ROOT / "plots"
 RESULT_FILE = _ROOT / "result_ml.txt"
 
 FORWARD_DAYS: int = 1
-TRAIN_MONTHS: int = 18
+TRAIN_MONTHS: int = 15
 VAL_MONTHS: int = 3
 TEST_MONTHS: int = 3
 EMBARGO_DAYS: int = 1        # must be >= FORWARD_DAYS to prevent target leakage
@@ -340,13 +340,16 @@ def main() -> None:
     _print(f"\n   IC chart saved : {ic_path}", report_buf)
 
     # -----------------------------------------------------------------------
-    # 9. Layered backtest  (vs raw forward_return)
+    # 9. Layered backtest  (industry-neutral, vs raw forward_return)
     # -----------------------------------------------------------------------
-    _section("Layered Backtest (LayeredBacktester)", report_buf)
+    _section("Layered Backtest (LayeredBacktester, Industry-Neutral)", report_buf)
+
+    industry_df = meta_df[["trade_date", "ts_code", "industry"]].drop_duplicates()
 
     bt = LayeredBacktester(
         final_alpha_df,
         target_flat,
+        industry_df=industry_df,
         num_groups=5,
         rf=0.03,
         forward_days=FORWARD_DAYS,
@@ -355,7 +358,7 @@ def main() -> None:
     perf_table = bt.run_backtest()
     bt.plot(show=False)
 
-    _print("\nLayered Backtest Performance:\n", report_buf)
+    _print("\nLayered Backtest Performance (Industry-Neutral):\n", report_buf)
     _print(perf_table.to_string(), report_buf)
 
     # -----------------------------------------------------------------------

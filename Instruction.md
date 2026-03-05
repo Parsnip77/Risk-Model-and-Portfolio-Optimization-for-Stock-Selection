@@ -267,11 +267,44 @@ SHAP beeswarm（最后一折，top-10 特征，n=300 采样）→ shap_beeswarm.
 
 | 文件 | 类 | 说明 |
 |------|----|------|
-| `src/portfolio/backtester.py` | `LayeredBacktester` | 分层回测：按因子值截面分位数切分 N 组，计算等权收益、绩效指标与累计净值图 |
+| `src/portfolio/backtester.py` | `LayeredBacktester` | 分层回测：支持全截面与行业中性两种分组模式，计算等权收益、绩效指标与累计净值图 |
 | `src/portfolio/net_backtester.py` | `NetReturnBacktester` | 净收益回测：纯多头重叠组合，含摩擦成本、换手率、盈亏平衡换手率 |
 | `src/portfolio/ic_analyzer.py` | `calc_ic / calc_ic_metrics / plot_ic` | 截面 Spearman IC 评估：计算 IC 序列、均值/标准差/ICIR 指标、绘制时序图 |
 
-三个组件的调用逻辑与接口保持不变，详见 `Instruction_old.md` 第 9、11、13 节。后续阶段将在此目录下继续添加风险约束、组合优化等模块。
+#### `LayeredBacktester` 行业中性分层回测（方案 B）
+
+`LayeredBacktester` 新增可选参数 `industry_df`，传入时自动切换为**行业中性分层**模式，与训练 target 的行业中性化设计保持对称。
+
+**分组逻辑（三步）：**
+
+1. **行业内排名**：在每个 `(trade_date, industry)` 截面内，按因子值的百分位秩将股票映射到 G1\~G5。采用 `ceil(pct_rank × N)` 映射，对任意股票数（≥ 2）均成立；仅 1 只股票的行业返回 NaN 并被自动排除。
+
+2. **行业内组均值**：对每个 `(trade_date, industry, group)` 三元组，计算该格子内所有成员股票的**等权平均**前向收益率。
+
+3. **跨行业等权合并（Plan B）**：对每个 `(trade_date, group)`，将各行业的组均值再做**等权平均**。每个行业对最终组收益的贡献相同，规避大行业（如银行）主导组合收益的问题。
+
+**接口示例：**
+
+```python
+from backtester import LayeredBacktester
+
+industry_df = meta_df[["trade_date", "ts_code", "industry"]].drop_duplicates()
+
+bt = LayeredBacktester(
+    final_alpha_df,       # [trade_date, ts_code, ml_alpha]
+    target_flat,          # [trade_date, ts_code, forward_return]
+    industry_df=industry_df,   # 新增参数，传入时启用行业中性模式
+    num_groups=5,
+    rf=0.03,
+    forward_days=1,
+    plots_dir=PLOTS_DIR,
+)
+perf_table = bt.run_backtest()
+```
+
+`industry_df=None`（默认值）时退化为原来的全截面 qcut 模式，保持向后兼容。
+
+后续阶段将在此目录下继续添加风险约束、组合优化等模块。
 
 ---
 

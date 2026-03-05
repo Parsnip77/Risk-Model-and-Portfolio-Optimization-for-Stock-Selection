@@ -52,15 +52,17 @@ class AlphaLGBM:
 
     def __init__(self) -> None:
         self.model = lgb.LGBMRegressor(
-            objective="regression_l1",
-            n_estimators=1000,
-            learning_rate=0.005,
-            max_depth=4,
-            num_leaves=15,
+            objective="regression",
+            n_estimators=2000,
+            learning_rate=0.01,
+            max_depth=3,
+            num_leaves=7,
             subsample=0.8,
             subsample_freq=1,
             colsample_bytree=0.8,
-            min_child_samples=20, 
+            min_child_samples=30,
+            reg_alpha=0.1,
+            reg_lambda=1.0,
             random_state=42,
             n_jobs=-1,
             verbose=-1,
@@ -90,7 +92,7 @@ class AlphaLGBM:
         self.feature_names = X_train.columns.tolist()
 
         callbacks = [
-            lgb.early_stopping(stopping_rounds=150, verbose=False),
+            lgb.early_stopping(stopping_rounds=100, verbose=False),
             lgb.log_evaluation(period=-1),
         ]
 
