@@ -78,7 +78,7 @@ _compute_tradable()
   → tradable_mask (MultiIndex date×code 的 bool Series)
        ↓
 FactorEngine.get_all_factors()
-  → MultiIndex (date, code) × 39 个原始因子 (保留 NaN/inf)
+  → MultiIndex (date, code) × 50 个原始因子 (保留 NaN/inf)
        ↓
 FactorCleaner.process_all()
   Step 1: ±inf → NaN
@@ -113,7 +113,7 @@ FactorCleaner.process_all()
 
 #### 因子清单
 
-**A 组 — 微观结构与量价因子**（使用复权价格，共 26 个）
+**A 组 — 微观结构与量价因子**（使用复权价格，共 32 个）
 
 | 因子名 | 公式 | 说明 |
 |--------|------|------|
@@ -143,21 +143,31 @@ FactorCleaner.process_all()
 | `factor_realized_kurtosis` | \(\text{kurt}(R_t, 20)\) | 20 日已实现超额峰度（bias-corrected，Fisher 定义） |
 | `factor_hl_range` | \(\text{mean}((H-L)/C,\ 10)\) | 日内振幅均值，10 日滚动（流动性 / 波动代理） |
 | `factor_downside_vol` | \(\text{std}(R_t[R_t < 0],\ 20)\) | 下行波动率（仅负收益日），20 日 |
+| `factor_upside_vol` | \(\text{std}(R_t[R_t > 0],\ 20)\) | 上行波动率（仅正收益日），20 日 |
+| `factor_gap_return` | \((O_t - C_{t-1}) / C_{t-1}\) | 隔夜收益（开盘相对前收） |
+| `factor_turnover_volatility` | \(\text{std}(\text{turnover\_rate},\ 20)\) | 换手率 20 日滚动标准差 |
+| `factor_distance_from_low` | \((C - \text{tsmin}(C, 60)) / \text{tsmin}(C, 60)\) | 距 60 日最低点的涨幅，恒 ≥ 0 |
+| `factor_momentum_acceleration` | \(\text{mom}_{5d} - \text{mom}_{10d}\) | 动量加速度（短期减中期） |
+| `factor_return_consistency` | 20 日内正收益日占比 | 收益一致性，值域 [0, 1] |
 
-**B 组 — 基本面与估值因子**（季度数据，PIT 对齐，共 3 个）
+**B 组 — 基本面与估值因子**（季度数据 PIT 对齐或日频，共 4 个）
 
 | 因子名 | 公式 | 说明 |
 |--------|------|------|
 | `factor_ep` | \(1/\text{PE}\) | 盈利收益率 |
 | `factor_bp` | \(1/\text{PB}\) | 账面市值比 |
 | `factor_roe` | 加权平均 ROE | 来自 `fina_indicator`，按 ann_date PIT 对齐 |
+| `factor_log_mv` | \(\log(\text{total\_mv})\) | 对数市值，规模因子 |
 
-**C 组 — 截面相对特征**（共 8 个）
+**C 组 — 截面相对特征**（共 12 个）
 
 | 因子名 | 公式 | 说明 |
 |--------|------|------|
 | `factor_industry_rel_turnover` | 换手率 − 行业截面**中位数** | 相对行业换手率偏离（差值） |
 | `factor_industry_rel_bp` | BP − 行业截面**中位数** | 相对行业估值偏离（差值） |
+| `factor_industry_rel_mv` | \(\log(\text{mv}) - \text{行业中位数}(\log(\text{mv}))\) | 相对行业市值偏离（差值） |
+| `factor_industry_rel_ep` | EP − 行业截面**中位数** | 相对行业盈利收益率偏离（差值） |
+| `factor_industry_rel_roe` | ROE − 行业截面**中位数** | 相对行业 ROE 偏离（差值） |
 | `factor_ts_rel_turnover` | 换手率 / 60 日滚动**均值** | 时序相对换手率（比值） |
 | `factor_ind_rel_momentum_5d` | \(\text{mom}_{5d} - \text{行业中位数}(\text{mom}_{5d})\) | 行业相对 5 日动量（差值） |
 | `factor_ind_rel_momentum_10d` | \(\text{mom}_{10d} - \text{行业中位数}(\text{mom}_{10d})\) | 行业相对 10 日动量（差值） |
@@ -173,8 +183,8 @@ FactorCleaner.process_all()
 |------|------|------|
 | `prices.parquet` | (trade_date, ts_code) | 原始 OHLCV + 复权因子 + tradable（bool） |
 | `meta.parquet` | (trade_date, ts_code) | 15 个每日基本面字段 + 申万一级行业 |
-| `factors_raw.parquet` | (trade_date, ts_code) | 37 列原始因子值，保留 NaN |
-| `factors_clean.parquet` | (trade_date, ts_code) | 37 列百分位排名 (0,1]，非可交易格子为 NaN |
+| `factors_raw.parquet` | (trade_date, ts_code) | 48 列原始因子值，保留 NaN |
+| `factors_clean.parquet` | (trade_date, ts_code) | 48 列百分位排名 (0,1]，非可交易格子为 NaN |
 
 #### 重要特殊细节
 

@@ -70,11 +70,11 @@ DATA_DIR    = _ROOT / "data"
 PLOTS_DIR   = _ROOT / "plots"
 RESULT_FILE = _ROOT / "result_ml.txt"
 
-FORWARD_DAYS: int = 5
+FORWARD_DAYS: int = 1
 TRAIN_MONTHS: int = 18
 VAL_MONTHS: int = 3
 TEST_MONTHS: int = 3
-EMBARGO_DAYS: int = 5        # must be >= FORWARD_DAYS to prevent target leakage
+EMBARGO_DAYS: int = 1        # must be >= FORWARD_DAYS to prevent target leakage
 SHAP_SAMPLE_SIZE: int = 300  # rows sub-sampled for SHAP (speed)
 SHAP_TOP_N: int = 10         # features displayed in beeswarm
 
@@ -325,7 +325,7 @@ def main() -> None:
     ).reset_index(drop=True)
     final_alpha_df["ml_alpha"] = (
         final_alpha_df.groupby("ts_code")["ml_alpha"]
-        .transform(lambda s: s.rolling(window=1, min_periods=1).mean())
+        .transform(lambda s: s.rolling(window=3, min_periods=3).mean())
     )
     final_alpha_df = final_alpha_df.dropna(subset=["ml_alpha"]).reset_index(drop=True)
 

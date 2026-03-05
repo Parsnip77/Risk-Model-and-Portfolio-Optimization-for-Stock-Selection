@@ -529,6 +529,66 @@ class FactorEngine:
 
         return self.returns.rolling(20).apply(_dsv, raw=True)
 
+    def factor_upside_vol(self) -> pd.DataFrame:
+        """
+        Upside volatility over 20 days: std of positive daily returns only.
+        Complement to factor_downside_vol; captures right-tail dispersion.
+        Requires at least 2 positive-return days in the window; otherwise NaN.
+        """
+        def _usv(x: np.ndarray) -> float:
+            pos = x[x > 0]
+            return float(pos.std(ddof=1)) if len(pos) >= 2 else np.nan
+
+        return self.returns.rolling(20).apply(_usv, raw=True)
+
+    def factor_gap_return(self) -> pd.DataFrame:
+        """
+        Overnight gap return: (open_t - close_{t-1}) / close_{t-1}.
+        Captures overnight information and pre-market sentiment.
+        """
+        close_prev = self._delay(self.close, 1)
+        return (self.open - close_prev) / close_prev.replace(0, np.nan)
+
+    def factor_turnover_volatility(self) -> pd.DataFrame:
+        """
+        Rolling 20-day std of turnover_rate.
+        High values indicate regime shifts or unusual trading activity.
+        """
+        if self.turnover_rate is None:
+            return pd.DataFrame(np.nan, index=self.close.index, columns=self.close.columns)
+        return self._stddev(self.turnover_rate, 20)
+
+    def factor_distance_from_low(self) -> pd.DataFrame:
+        """
+        Distance from 60-day low:
+            (close - ts_min(close, 60)) / ts_min(close, 60)
+        Always >= 0; symmetric to factor_drawdown_from_high.
+        """
+        low60 = self._ts_min(self.close, 60).replace(0, np.nan)
+        return (self.close - low60) / low60
+
+    def factor_momentum_acceleration(self) -> pd.DataFrame:
+        """
+        Momentum acceleration: momentum_5d - momentum_10d.
+        Positive when short-term momentum exceeds medium-term (trend strengthening).
+        """
+        mom5 = self.factor_momentum_5d()
+        mom10 = self.factor_momentum_10d()
+        return mom5 - mom10
+
+    def factor_return_consistency(self) -> pd.DataFrame:
+        """
+        Proportion of positive return days over 20-day rolling window.
+        Values in [0, 1]; high values indicate consistent upward drift.
+        """
+        def _pct_pos(x: np.ndarray) -> float:
+            valid = x[~np.isnan(x)]
+            if len(valid) < 5:
+                return np.nan
+            return float(np.mean(valid > 0))
+
+        return self.returns.rolling(20).apply(_pct_pos, raw=True)
+
     # ==================================================================
     # B — Fundamental and valuation factors
     # ==================================================================
@@ -551,6 +611,13 @@ class FactorEngine:
         Forward-filled from ann_date; updated only when new reports are announced.
         """
         return self._pit_align_financial("roe")
+
+    def factor_log_mv(self) -> pd.DataFrame:
+        """
+        Log market capitalization: log(total_mv).
+        Size factor; smaller stocks typically have higher expected returns.
+        """
+        return self._log(self.total_mv.replace(0, np.nan))
 
     # ==================================================================
     # C — Cross-sectional relative features
@@ -577,6 +644,30 @@ class FactorEngine:
             return pd.DataFrame(np.nan, index=self.close.index, columns=self.close.columns)
         bp = 1.0 / self.pb.replace(0, np.nan)
         return self._industry_demean(bp)
+
+    def factor_industry_rel_mv(self) -> pd.DataFrame:
+        """
+        Industry-relative log market cap:
+            log(total_mv) − median(log(total_mv) in same SW L1 industry)
+        """
+        log_mv = self.factor_log_mv()
+        return self._industry_demean(log_mv)
+
+    def factor_industry_rel_ep(self) -> pd.DataFrame:
+        """
+        Industry-relative earnings-to-price:
+            EP − median(EP in same SW L1 industry)
+        """
+        ep = self.factor_ep()
+        return self._industry_demean(ep)
+
+    def factor_industry_rel_roe(self) -> pd.DataFrame:
+        """
+        Industry-relative ROE:
+            ROE − median(ROE in same SW L1 industry)
+        """
+        roe = self.factor_roe()
+        return self._industry_demean(roe)
 
     def factor_ts_rel_turnover(self) -> pd.DataFrame:
         """

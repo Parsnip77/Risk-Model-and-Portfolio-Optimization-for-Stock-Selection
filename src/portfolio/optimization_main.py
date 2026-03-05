@@ -79,7 +79,7 @@ RESULT_FILE = _ROOT / "result_optimization.txt"
 
 # --- Two separate cost-related parameters (do NOT merge into one) -----------
 
-LAMBDA_TURNOVER: float = 0.01
+LAMBDA_TURNOVER: float = 0.015
 # Turnover-aversion coefficient in the LP objective.  Dimensionless policy knob.
 # Because alpha is in rank-score units (~±0.5 after de-meaning), NOT return
 # units (~±0.01), using the monetary cost rate (0.002) here would make the
@@ -88,7 +88,7 @@ LAMBDA_TURNOVER: float = 0.01
 #   0.2~0.5   → moderate,   Avg Daily Turnover ~2–8 %  ← recommended start
 #   1.0+      → very stable, slow signal tracking
 
-COST_RATE: float = 0.0001
+COST_RATE: float = 0.002
 # Actual one-way transaction cost rate for P&L deduction only.
 # Applied as: net_return = gross_return - turnover * COST_RATE.
 # Do not use this as the optimiser penalty; see LAMBDA_TURNOVER above.

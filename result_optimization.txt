@@ -3,11 +3,11 @@
   Stage 4 · Convex Portfolio Optimisation Backtest
 ======================================================================
 1. Loading parquet files ...
-   ml_alpha shape : (179774, 3)
+   ml_alpha shape : (179287, 3)
    prices   shape : (361333, 9)
    meta     shape : (361333, 18)
    index prices  : 1214 rows
-   alpha date range : 20210322 → 20231025
+   alpha date range : 20210318 → 20231019
 
 ======================================================================
   Optimisation Settings
@@ -15,11 +15,11 @@
 Objective  : max  w' alpha_centered - lambda_TO/2 * ||w - w_prev||_1
              (alpha_centered = alpha - cross_sectional_mean(alpha))
 
-lambda_turnover : 0.01
+lambda_turnover : 0.015
   → turnover-aversion coefficient (dimensionless policy knob, NOT a cost rate)
   → tune by inspecting Avg Daily Turnover in the report below
 
-cost_rate : 0.0001
+cost_rate : 0.0020
   → actual one-way transaction cost rate for P&L accounting only
   → net_return = gross_return - turnover * cost_rate
 
@@ -36,24 +36,24 @@ Solver               : CLARABEL (cvxpy default for LP)
   Performance Summary
 ======================================================================
 
-Cum Return           -0.149668
-Ann Return           -0.062890
-Ann Vol               0.184932
-Sharpe               -0.502292
-Max DD               -0.312276
-Avg Daily Turnover    0.044889
-Breakeven Turnover   -3.644027
+Cum Return           -0.157550
+Ann Return           -0.066584
+Ann Vol               0.169657
+Sharpe               -0.569292
+Max DD               -0.270768
+Avg Daily Turnover    0.049480
+Breakeven Turnover   -0.144842
 Relaxation Events     0.000000
-Bench Ann Return     -0.136655
-Excess Ann Return     0.084111
-Tracking Error        0.125884
-Information Ratio     0.668165
-Max Relative DD      -0.076106
+Bench Ann Return     -0.139943
+Excess Ann Return     0.081107
+Tracking Error        0.124339
+Information Ratio     0.652305
+Max Relative DD      -0.068475
 
 ======================================================================
   Industry Tolerance Relaxation Log
 ======================================================================
-   Relaxation events : 0 / 629 trading days (0.0%)
+   Relaxation events : 0 / 627 trading days (0.0%)
 
 ======================================================================
   Saving Outputs
