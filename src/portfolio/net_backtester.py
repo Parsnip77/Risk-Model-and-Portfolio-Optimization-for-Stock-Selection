@@ -224,7 +224,19 @@ class NetReturnBacktester:
         return daily_w
 
     def _build_return_series(self) -> None:
-        """Compute net/gross return and turnover series (vectorised)."""
+        """Compute net/gross return and turnover series (vectorised).
+
+        Execution assumption (open-to-open, no look-ahead bias)
+        ---------------------------------------------------------
+        Signal observed at close of day T is executed at the OPEN of day T+1
+        and held until the OPEN of day T+2.  Consequently, the portfolio
+        return each period is the consecutive open-to-open return:
+
+            stock_ret[T] = open_T / open_{T-1} - 1
+
+        This is consistent with ``calc_forward_return`` in targets.py, which
+        also uses open prices for both entry (open_{T+1}) and exit (open_{T+2}).
+        """
         if self._net_ret is not None:
             return
 
@@ -232,18 +244,18 @@ class NetReturnBacktester:
         alpha_wide = self._alpha_df.pivot(
             index="trade_date", columns="ts_code", values=self.factor_col
         )
-        close_wide = self._prices_df.pivot(
-            index="trade_date", columns="ts_code", values="close"
+        open_wide = self._prices_df.pivot(
+            index="trade_date", columns="ts_code", values="open"
         )
 
         # Align to common dates and stocks
-        common_dates  = alpha_wide.index.intersection(close_wide.index)
-        common_stocks = alpha_wide.columns.intersection(close_wide.columns)
+        common_dates  = alpha_wide.index.intersection(open_wide.index)
+        common_stocks = alpha_wide.columns.intersection(open_wide.columns)
         alpha_wide = alpha_wide.reindex(index=common_dates, columns=common_stocks)
-        close_wide = close_wide.reindex(index=common_dates, columns=common_stocks)
+        open_wide  = open_wide.reindex(index=common_dates, columns=common_stocks)
 
-        # Day-over-day stock returns
-        stock_ret = close_wide.pct_change()
+        # Open-to-open daily stock returns
+        stock_ret = open_wide.pct_change()
 
         # ---- Daily portfolio weights ----
         if self._industry_col is not None:

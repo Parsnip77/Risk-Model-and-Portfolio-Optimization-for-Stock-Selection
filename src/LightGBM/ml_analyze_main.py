@@ -322,6 +322,11 @@ def main() -> None:
         report_buf,
     )
 
+    # Persist alpha signal for downstream optimization backtester
+    alpha_parquet_path = DATA_DIR / "ml_alpha.parquet"
+    final_alpha_df.to_parquet(alpha_parquet_path, index=False)
+    _print(f"   Saved      : {alpha_parquet_path}", report_buf)
+
     # -----------------------------------------------------------------------
     # 8. IC analysis  (vs raw forward_return)
     # -----------------------------------------------------------------------

@@ -12,7 +12,7 @@
 3. Computing industry-neutralized returns ...
 
 4. Merging factors and targets ...
-   merged shape          : (319901, 57)
+   merged shape          : (319514, 57)
    feature cols (52): ['alpha001', 'alpha003', 'alpha006', 'alpha012', 'alpha038']...
    training target       : cs_rank_return  (cross-sectional pct-rank of industry-neutral T+1 return)
    IC / backtest target  : forward_return  (raw, unmodified)
@@ -24,77 +24,78 @@
    Estimated folds : 10
 
 --- Fold 1 ---
-  Train : 20190522 → 20201207  (n=107,574)
-  Val   : 20201208 → 20210312  (n=17,761)
-  Test  : 20210316 → 20210617  (n=17,901)
-  Best iteration : 358
+  Train : 20190522 → 20201207  (n=107,530)
+  Val   : 20201208 → 20210312  (n=17,753)
+  Test  : 20210316 → 20210617  (n=17,890)
+  Best iteration : 919
 
 --- Fold 2 ---
-  Train : 20190820 → 20210312  (n=107,282)
-  Val   : 20210315 → 20210616  (n=17,902)
-  Test  : 20210618 → 20210914  (n=17,819)
-  Best iteration : 380
+  Train : 20190820 → 20210312  (n=107,236)
+  Val   : 20210315 → 20210616  (n=17,891)
+  Test  : 20210618 → 20210914  (n=17,815)
+  Best iteration : 144
 
 --- Fold 3 ---
-  Train : 20191125 → 20210616  (n=107,129)
-  Val   : 20210617 → 20210913  (n=17,813)
-  Test  : 20210915 → 20211221  (n=17,952)
-  Best iteration : 484
+  Train : 20191125 → 20210616  (n=107,081)
+  Val   : 20210617 → 20210913  (n=17,809)
+  Test  : 20210915 → 20211221  (n=17,946)
+  Best iteration : 642
 
 --- Fold 4 ---
-  Train : 20200302 → 20210913  (n=107,103)
-  Val   : 20210914 → 20211220  (n=17,953)
-  Test  : 20211222 → 20220328  (n=18,037)
-  Best iteration : 396
+  Train : 20200302 → 20210913  (n=107,058)
+  Val   : 20210914 → 20211220  (n=17,947)
+  Test  : 20211222 → 20220328  (n=18,035)
+  Best iteration : 267
 
 --- Fold 5 ---
-  Train : 20200603 → 20211220  (n=107,101)
-  Val   : 20211221 → 20220325  (n=18,037)
-  Test  : 20220329 → 20220701  (n=17,969)
-  Best iteration : 160
+  Train : 20200603 → 20211220  (n=107,058)
+  Val   : 20211221 → 20220325  (n=18,035)
+  Test  : 20220329 → 20220701  (n=17,961)
+  Best iteration : 415
 
 --- Fold 6 ---
-  Train : 20200902 → 20220325  (n=107,416)
-  Val   : 20220328 → 20220630  (n=17,969)
-  Test  : 20220704 → 20220929  (n=18,046)
-  Best iteration : 134
+  Train : 20200902 → 20220325  (n=107,376)
+  Val   : 20220328 → 20220630  (n=17,961)
+  Test  : 20220704 → 20220929  (n=18,039)
+  Best iteration : 254
 
 --- Fold 7 ---
-  Train : 20201208 → 20220630  (n=107,435)
-  Val   : 20220701 → 20220928  (n=18,046)
-  Test  : 20220930 → 20230104  (n=18,009)
-  Best iteration : 189
+  Train : 20201208 → 20220630  (n=107,396)
+  Val   : 20220701 → 20220928  (n=18,039)
+  Test  : 20220930 → 20230104  (n=18,003)
+  Best iteration : 230
 
 --- Fold 8 ---
-  Train : 20210315 → 20220928  (n=107,720)
-  Val   : 20220929 → 20230103  (n=18,012)
-  Test  : 20230105 → 20230411  (n=18,060)
-  Best iteration : 201
+  Train : 20210315 → 20220928  (n=107,682)
+  Val   : 20220929 → 20230103  (n=18,006)
+  Test  : 20230105 → 20230411  (n=18,058)
+  Best iteration : 658
 
 --- Fold 9 ---
-  Train : 20210617 → 20230103  (n=107,830)
-  Val   : 20230104 → 20230410  (n=18,056)
-  Test  : 20230412 → 20230714  (n=18,038)
-  Best iteration : 484
+  Train : 20210617 → 20230103  (n=107,797)
+  Val   : 20230104 → 20230410  (n=18,054)
+  Test  : 20230412 → 20230714  (n=18,037)
+  Best iteration : 285
 
 --- Fold 10 ---
-  Train : 20210914 → 20230410  (n=108,073)
-  Val   : 20230411 → 20230713  (n=18,041)
+  Train : 20210914 → 20230410  (n=108,042)
+  Val   : 20230411 → 20230713  (n=18,040)
   Test  : 20230717 → 20231019  (n=18,079)
-  Best iteration : 184
+  Best iteration : 446
 
 ======================================================================
   Assembling Final ML Alpha
 ======================================================================
-   shape      : (179910, 3)  (after 3-day smoothing)
+   shape      : (179863, 3)  (after 3-day smoothing)
    date range : 20210316 → 20231019
+   Saved      : /Users/infinity/Desktop/Career/Quant/Projects/Risk-Model-and-Portfolio-Optimization-for-Stock-Selection/data/ml_alpha.parquet
 
 ======================================================================
   IC Analysis — ML Synthetic Factor
 ======================================================================
-   IC Mean : +0.0350
-   IC Std  : 0.1322
-   ICIR    : +0.2649
+   IC Mean : +0.0468
+   IC Std  : 0.1293
+   ICIR    : +0.3621
 
    IC chart saved : /Users/infinity/Desktop/Career/Quant/Projects/Risk-Model-and-Portfolio-Optimization-for-Stock-Selection/plots/ml_alpha_ic.png
 
@@ -105,12 +106,12 @@
 Layered Backtest Performance (Industry-Neutral):
 
      Cum Return  Ann Return  Ann Vol  Sharpe  Max DD
-G1       0.0250      0.0099   0.1521 -0.1320 -0.1842
-G2       0.0777      0.0304   0.1491  0.0027 -0.1703
-G3       0.2610      0.0972   0.1499  0.4481 -0.1496
-G4       0.4796      0.1697   0.1548  0.9023 -0.1719
-G5       0.6251      0.2144   0.1620  1.1380 -0.1743
-L-S      0.5787      0.2004   0.0812  2.0992 -0.0723
+G1      -0.2748     -0.1206   0.1778 -0.8471 -0.3289
+G2      -0.3387     -0.1524   0.1661 -1.0985 -0.3909
+G3      -0.1115     -0.0462   0.1680 -0.4536 -0.2208
+G4       0.0114      0.0046   0.1699 -0.1497 -0.2247
+G5       0.0910      0.0355   0.1676  0.0326 -0.2375
+L-S      0.4804      0.1699   0.0960  1.4573 -0.0636
 
 ======================================================================
   Net Return Backtest (NetReturnBacktester, Industry-Neutral)
@@ -118,13 +119,13 @@ L-S      0.5787      0.2004   0.0812  2.0992 -0.0723
 
 Net Return Backtest Summary:
 
-Cum Return           -0.461965
-Ann Return           -0.219895
-Ann Vol               0.178336
-Sharpe               -1.401258
-Max DD               -0.471725
-Avg Daily Turnover    0.516703
-Breakeven Turnover   -0.035285
+Cum Return           -0.993535
+Ann Return           -0.867308
+Ann Vol               0.163701
+Sharpe               -5.481391
+Max DD               -0.993566
+Avg Daily Turnover    0.488737
+Breakeven Turnover   -1.706197
 
 ======================================================================
   Feature Importance (Average Across Folds)
@@ -133,58 +134,58 @@ Breakeven Turnover   -0.035285
 Average Feature Importance (gain):
 
                       feature  importance
-                     alpha042  163.574114
-           factor_momentum_1d  155.061161
-               factor_bias_5d  111.526149
-       factor_industry_rel_bp   93.871838
-           factor_ind_rel_vol   93.070513
-                     alpha001   92.734741
-          factor_amihud_illiq   92.436036
-factor_ind_rel_turnover_ratio   85.835929
-   factor_ind_rel_momentum_5d   85.446605
-              factor_hl_range   70.220889
-                     alpha038   66.630480
-  factor_ind_rel_momentum_10d   62.416322
-                     alpha012   58.802942
-                  factor_ivol   58.379729
-                    factor_bp   56.273101
-                    factor_ep   53.430994
-                     alpha041   52.918104
- factor_industry_rel_turnover   52.336353
-           factor_momentum_3d   50.656083
-       factor_ts_rel_turnover   50.203627
-                   factor_roe   47.381048
-  factor_ind_rel_momentum_20d   45.618271
-                     alpha054   43.915362
-               factor_rvol_5d   43.139603
-        factor_vol_oscillator   42.548945
-          factor_momentum_10d   41.791348
-                     alpha094   40.757389
-              factor_rvol_10d   36.695245
-          factor_momentum_20d   35.019060
-    factor_drawdown_from_high   34.802055
-                     alpha040   33.010913
-     factor_realized_kurtosis   31.275504
-        factor_trend_strength   28.028069
-          factor_downside_vol   27.176246
-              factor_bias_20d   26.560611
-              factor_bias_10d   25.774825
-      factor_net_buy_proxy_5d   24.322940
-                     alpha101   23.173905
-              factor_rvol_20d   22.835533
-        factor_5_day_reversal   22.354664
-          factor_vw_return_5d   22.131550
-     factor_realized_skewness   21.543055
-     factor_net_buy_proxy_10d   21.453949
-                     alpha072   19.218896
-                     alpha006   18.158468
-                     alpha098   18.125333
-                     alpha088   16.940172
-    factor_vol_price_corr_20d   15.383484
-         factor_vw_return_10d   15.149318
-                     alpha003   13.953869
-        factor_vol_price_corr   11.062376
-           factor_momentum_5d    3.834300
+                     alpha042  248.644119
+   factor_ind_rel_momentum_5d  175.533867
+               factor_bias_5d  164.120937
+                  factor_ivol  132.955054
+       factor_industry_rel_bp  128.071043
+              factor_hl_range  106.421551
+       factor_ts_rel_turnover  102.785192
+           factor_momentum_3d   99.757051
+                     alpha001   96.321873
+          factor_amihud_illiq   95.082740
+                     alpha012   92.397177
+  factor_ind_rel_momentum_10d   89.960565
+                     alpha038   86.518835
+           factor_momentum_1d   84.901383
+                    factor_bp   84.097485
+                   factor_roe   74.319830
+                     alpha054   65.328984
+           factor_ind_rel_vol   62.460300
+                     alpha041   62.061395
+               factor_rvol_5d   56.862989
+                    factor_ep   56.250379
+              factor_rvol_10d   55.985235
+        factor_vol_oscillator   55.362372
+                     alpha040   53.582629
+  factor_ind_rel_momentum_20d   53.213056
+ factor_industry_rel_turnover   51.968893
+     factor_realized_kurtosis   49.826784
+              factor_bias_10d   48.287155
+                     alpha101   47.735988
+          factor_momentum_10d   45.425762
+          factor_vw_return_5d   44.655239
+        factor_trend_strength   44.342292
+factor_ind_rel_turnover_ratio   43.549778
+     factor_net_buy_proxy_10d   42.332543
+    factor_drawdown_from_high   41.305378
+                     alpha094   41.020361
+          factor_momentum_20d   38.382508
+              factor_bias_20d   37.197799
+      factor_net_buy_proxy_5d   35.878394
+    factor_vol_price_corr_20d   34.929489
+                     alpha098   33.733707
+        factor_5_day_reversal   32.808384
+          factor_downside_vol   32.283178
+         factor_vw_return_10d   31.897100
+              factor_rvol_20d   31.728994
+                     alpha006   30.703458
+                     alpha072   28.701034
+                     alpha088   27.374807
+     factor_realized_skewness   24.960232
+                     alpha003   23.704518
+        factor_vol_price_corr   23.152442
+           factor_momentum_5d    6.011693
 
    Saved : /Users/infinity/Desktop/Career/Quant/Projects/Risk-Model-and-Portfolio-Optimization-for-Stock-Selection/plots/feature_importance.png
 
