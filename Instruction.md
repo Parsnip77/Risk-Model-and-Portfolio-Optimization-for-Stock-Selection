@@ -78,7 +78,7 @@ _compute_tradable()
   → tradable_mask (MultiIndex date×code 的 bool Series)
        ↓
 FactorEngine.get_all_factors()
-  → MultiIndex (date, code) × 50 个原始因子 (保留 NaN/inf)
+  → MultiIndex (date, code) × 55 个原始因子 (保留 NaN/inf)
        ↓
 FactorCleaner.process_all()
   Step 1: ±inf → NaN
@@ -113,18 +113,20 @@ FactorCleaner.process_all()
 
 #### 因子清单
 
-**A 组 — 微观结构与量价因子**（使用复权价格，共 32 个）
+**A 组 — 微观结构与量价因子**（使用复权价格，共 34 个）
 
 | 因子名 | 公式 | 说明 |
 |--------|------|------|
 | `factor_amihud_illiq` | \(\frac{1}{20}\sum\frac{\|R_t\|}{\text{amount}_t}\times 10^6\) | Amihud 非流动性，值越大流动性越差 |
 | `factor_ivol` | \(\text{std}(\varepsilon_t)\)，20 日滚动 OLS 残差 | 特异性波动率，对 CSI300 做回归后的残差标准差 |
+| `factor_beta` | 20 日滚动 OLS 回归斜率 | 对 CSI300 的市场 beta，与 IVOL 同回归 |
 | `factor_realized_skewness` | \(\text{skew}(R_t, 20\text{天})\) | 日收益率 20 日偏度（bias-corrected） |
 | `factor_vol_price_corr` | \(\text{Corr}(\text{rank}(\text{close}), \text{rank}(\text{vol}), 10)\) | 量价秩相关（Spearman），10 日 |
 | `factor_vol_price_corr_20d` | 同上，窗口 20 | 量价秩相关（Spearman），20 日 |
 | `factor_vw_return_5d` | \(\sum(R_t \cdot V_t, 5) / \sum(V_t, 5)\) | 成交量加权收益率，5 日 |
 | `factor_vw_return_10d` | 同上，窗口 10 | 成交量加权收益率，10 日 |
 | `factor_vol_oscillator` | \(\text{MA}(\text{vol}, 5) / \text{MA}(\text{vol}, 20)\) | 量震荡指标：短期/中期成交量比值 |
+| `factor_volume_ratio` | volume_ratio（daily_basic） | 量比：当日成交量 / 5 日均量 |
 | `factor_net_buy_proxy_5d` | \(\text{mean}\!\left(\frac{C-O}{H-L+\epsilon}\cdot V,\ 5\right)\) | 净买入代理（方向性成交），5 日 |
 | `factor_net_buy_proxy_10d` | 同上，窗口 10 | 净买入代理（方向性成交），10 日 |
 | `factor_momentum_1d` | \((C_t - C_{t-1}) / C_{t-1}\) | 1 日价格动量 |
@@ -150,7 +152,7 @@ FactorCleaner.process_all()
 | `factor_momentum_acceleration` | \(\text{mom}_{5d} - \text{mom}_{10d}\) | 动量加速度（短期减中期） |
 | `factor_return_consistency` | 20 日内正收益日占比 | 收益一致性，值域 [0, 1] |
 
-**B 组 — 基本面与估值因子**（季度数据 PIT 对齐或日频，共 4 个）
+**B 组 — 基本面与估值因子**（季度数据 PIT 对齐或日频，共 7 个）
 
 | 因子名 | 公式 | 说明 |
 |--------|------|------|
@@ -158,6 +160,9 @@ FactorCleaner.process_all()
 | `factor_bp` | \(1/\text{PB}\) | 账面市值比 |
 | `factor_roe` | 加权平均 ROE | 来自 `fina_indicator`，按 ann_date PIT 对齐 |
 | `factor_log_mv` | \(\log(\text{total\_mv})\) | 对数市值，规模因子 |
+| `factor_ps` | \(1/\text{ps\_ttm}\) | 市销率倒数（daily_basic） |
+| `factor_dv_ratio` | dv_ratio | 股息率（daily_basic） |
+| `factor_circ_mv_ratio` | circ_mv / total_mv | 流通市值占比 |
 
 **C 组 — 截面相对特征**（共 12 个）
 
@@ -183,8 +188,8 @@ FactorCleaner.process_all()
 |------|------|------|
 | `prices.parquet` | (trade_date, ts_code) | 原始 OHLCV + 复权因子 + tradable（bool） |
 | `meta.parquet` | (trade_date, ts_code) | 15 个每日基本面字段 + 申万一级行业 |
-| `factors_raw.parquet` | (trade_date, ts_code) | 48 列原始因子值，保留 NaN |
-| `factors_clean.parquet` | (trade_date, ts_code) | 48 列百分位排名 (0,1]，非可交易格子为 NaN |
+| `factors_raw.parquet` | (trade_date, ts_code) | 53 列原始因子值，保留 NaN |
+| `factors_clean.parquet` | (trade_date, ts_code) | 53 列百分位排名 (0,1]，非可交易格子为 NaN |
 
 #### 重要特殊细节
 

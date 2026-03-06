@@ -33,6 +33,7 @@ PIT alignment note:
 
 import sys
 from pathlib import Path
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
@@ -125,6 +126,10 @@ class FactorEngine:
         self.pe            = df_basic["pe"].unstack("code") if "pe" in df_basic.columns else None
         self.pb            = df_basic["pb"].unstack("code") if "pb" in df_basic.columns else None
         self.turnover_rate = df_basic["turnover_rate"].unstack("code") if "turnover_rate" in df_basic.columns else None
+        self.volume_ratio  = df_basic["volume_ratio"].unstack("code") if "volume_ratio" in df_basic.columns else None
+        self.ps_ttm       = df_basic["ps_ttm"].unstack("code") if "ps_ttm" in df_basic.columns else None
+        self.dv_ratio     = df_basic["dv_ratio"].unstack("code") if "dv_ratio" in df_basic.columns else None
+        self.circ_mv      = df_basic["circ_mv"].unstack("code") if "circ_mv" in df_basic.columns else None
 
         # ---- Industry mapping (code → SW L1 name) ----
         df_industry = data_dict["df_industry"]
@@ -249,22 +254,21 @@ class FactorEngine:
             raw=True,
         )
 
-    def _rolling_ols_resid_std(self, d: int) -> pd.DataFrame:
+    def _rolling_ols(self, d: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        Vectorized rolling OLS residual std for IVOL.
+        Vectorized rolling OLS: r_stock = alpha + beta * r_market + epsilon.
 
-        For each trading date t, fits:
-            r_stock = alpha + beta * r_market + epsilon
+        For each trading date t, fits using the previous d days.
+        Returns (beta_df, ivol_df) where:
+            beta_df: market beta coefficient (slope)
+            ivol_df: std(epsilon), idiosyncratic volatility
 
-        using the previous d days.  IVOL_t = std(epsilon).
-
-        Vectorized across stocks: for each window, stocks with no NaN in their
-        returns are processed simultaneously via batch matrix multiplication.
-        Stocks with more than d//2 NaN values in the window receive NaN.
+        Vectorized across stocks; stocks with NaN in window receive NaN.
         """
         mkt = self.market_ret.reindex(self.returns.index).values
         ret_arr = self.returns.values
         T, N = ret_arr.shape
+        beta_arr = np.full((T, N), np.nan)
         ivol_arr = np.full((T, N), np.nan)
 
         for t in range(d - 1, T):
@@ -285,11 +289,22 @@ class FactorEngine:
                 continue
 
             Y = w_ret[:, valid_stocks]
-            beta = XtX_inv_Xt @ Y
-            resid = Y - X @ beta
+            coef = XtX_inv_Xt @ Y  # shape (2, n_valid): [alpha, beta]
+            resid = Y - X @ coef
+            beta_arr[t, valid_stocks] = coef[1, :]  # market beta
             ivol_arr[t, valid_stocks] = np.std(resid, axis=0, ddof=2)
 
-        return pd.DataFrame(ivol_arr, index=self.returns.index, columns=self.returns.columns)
+        idx = self.returns.index
+        cols = self.returns.columns
+        return (
+            pd.DataFrame(beta_arr, index=idx, columns=cols),
+            pd.DataFrame(ivol_arr, index=idx, columns=cols),
+        )
+
+    def _rolling_ols_resid_std(self, d: int) -> pd.DataFrame:
+        """IVOL from rolling OLS; delegates to _rolling_ols."""
+        _, ivol_df = self._rolling_ols(d)
+        return ivol_df
 
     def _pit_align_financial(self, col: str) -> pd.DataFrame:
         """
@@ -366,6 +381,16 @@ class FactorEngine:
         if self.market_ret.empty:
             return pd.DataFrame(np.nan, index=self.close.index, columns=self.close.columns)
         return self._rolling_ols_resid_std(d=20)
+
+    def factor_beta(self) -> pd.DataFrame:
+        """
+        Rolling 20-day market beta: slope from OLS regression of stock returns
+        on CSI 300 returns. Same regression as factor_ivol.
+        """
+        if self.market_ret.empty:
+            return pd.DataFrame(np.nan, index=self.close.index, columns=self.close.columns)
+        beta_df, _ = self._rolling_ols(d=20)
+        return beta_df
 
     def factor_realized_skewness(self) -> pd.DataFrame:
         """
@@ -618,6 +643,35 @@ class FactorEngine:
         Size factor; smaller stocks typically have higher expected returns.
         """
         return self._log(self.total_mv.replace(0, np.nan))
+
+    def factor_ps(self) -> pd.DataFrame:
+        """
+        Sales-to-price ratio: 1 / ps_ttm (price-to-sales TTM).
+        Valuation factor; higher values indicate cheaper valuation by sales.
+        Returns NaN when ps_ttm is missing or zero.
+        """
+        if self.ps_ttm is None:
+            return pd.DataFrame(np.nan, index=self.close.index, columns=self.close.columns)
+        return 1.0 / self.ps_ttm.replace(0, np.nan)
+
+    def factor_dv_ratio(self) -> pd.DataFrame:
+        """
+        Dividend yield (dv_ratio from daily_basic).
+        Higher values indicate higher dividend-paying stocks.
+        """
+        if self.dv_ratio is None:
+            return pd.DataFrame(np.nan, index=self.close.index, columns=self.close.columns)
+        return self.dv_ratio.copy()
+
+    def factor_circ_mv_ratio(self) -> pd.DataFrame:
+        """
+        Circulating market cap ratio: circ_mv / total_mv.
+        Measures float proportion; values in (0, 1].
+        """
+        if self.circ_mv is None:
+            return pd.DataFrame(np.nan, index=self.close.index, columns=self.close.columns)
+        total_safe = self.total_mv.replace(0, np.nan)
+        return self.circ_mv / total_safe
 
     # ==================================================================
     # C — Cross-sectional relative features
