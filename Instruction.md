@@ -40,7 +40,7 @@
 │   ├── LightGBM/                            # 第二阶段
 │   │   ├── __init__.py
 │   │   ├── targets.py                       # calc_forward_return：T+d 前向收益率
-│   │   ├── ml_data_prep.py                  # WalkForwardSplitter：滚动窗口 CV
+│   │   ├── ml_data_prep.py                  # WalkForwardSplitter：滚动/扩展窗口 CV
 │   │   ├── lgbm_model.py                    # AlphaLGBM：LightGBM 训练/预测/SHAP
 │   │   └── ml_analyze_main.py              # 第二阶段总脚本
 │   ├── risk_model/                          # 第三阶段（待开发）
@@ -255,7 +255,7 @@ SHAP beeswarm（最后一折，top-10 特征，n=300 采样）→ shap_beeswarm.
 | 文件 | 类 / 函数 | 说明 |
 |------|-----------|------|
 | `src/LightGBM/targets.py` | `calc_forward_return` | 计算前向收益率（开盘到开盘，见下方执行假设说明） |
-| `src/LightGBM/ml_data_prep.py` | `WalkForwardSplitter` | 滚动窗口 CV 分割器，防止时序泄漏 |
+| `src/LightGBM/ml_data_prep.py` | `WalkForwardSplitter` | 滚动/扩展窗口 CV 分割器，防止时序泄漏。支持 `expanding=False`（固定长度滚动）与 `expanding=True`（训练窗口扩展，充分利用历史） |
 | `src/LightGBM/lgbm_model.py` | `AlphaLGBM` | LightGBM 回归器封装（early stopping + SHAP） |
 | `src/LightGBM/ml_analyze_main.py` | `main()` | 第二阶段端到端执行脚本 |
 
@@ -284,8 +284,12 @@ SHAP beeswarm（最后一折，top-10 特征，n=300 采样）→ shap_beeswarm.
 **3. embargo_days = 1**
 `FORWARD_DAYS=1`，因此 embargo 最小设置为 1（防止 val 集最后一行的 target 与 test 集首行的 feature 重叠）。
 
-**4. 3 日滚动均值平滑**
-预测值在股票维度滚动平均，降低日间信号噪声与组合换手率。`min_periods=3` 确保每只股票前两个预测日自动为 NaN 并被排除。
+**4. Alpha 平滑（可选）**
+预测值在股票维度可选用两种平滑方式，顺序为：先滚动均值，再 EMA。配置项 `ALPHA_ROLLING_WINDOW`（默认 1=关闭）、`ALPHA_EMA_BETA`（默认 1=关闭）。滚动均值：`window>1` 时按股票时间序列做 rolling mean，`min_periods=window`。EMA：`alpha'_t = beta * alpha_t + (1-beta) * alpha'_{t-1}`，`beta<1` 时启用。
+
+**5. WalkForwardSplitter 两种模式**
+- **滚动窗口**（`expanding=False`，默认）：训练集固定长度（如 24m），每次 fold 整体向前滑动，适合市场结构变化较快的场景。
+- **扩展窗口**（`expanding=True`）：训练集从数据起点开始，随 fold 增长，充分利用历史数据，适合因子相对稳定的场景。可选 `step_months` 控制每 fold 前进步长（默认等于 `test_months`）。
 
 ---
 
@@ -382,8 +386,10 @@ summary = nb.run_backtest()
 | 文件 | 类 / 入口 | 说明 |
 |------|-----------|------|
 | `src/portfolio/optimizer.py` | `PortfolioOptimizer` | cvxpy LP 求解器：每日求解行业中性、带换手成本的最优权重向量 |
-| `src/portfolio/optimization_backtester.py` | `OptimizationBacktester` | 逐日调用优化器的纯多头回测，计算净收益与绩效指标 |
+| `src/portfolio/optimization_backtester.py` | `OptimizationBacktester` | 逐日调用优化器的纯多头回测，支持 forward_days 重叠组合逻辑（与 NetReturnBacktester 一致），计算净收益与绩效指标 |
 | `src/portfolio/optimization_main.py` | `main()` | 第四阶段独立入口脚本 |
+
+**重叠投资组合逻辑（forward_days > 1）**：当 `forward_days = d > 1` 时，与 `NetReturnBacktester` 采用相同逻辑：每日 optimizer 输出 `daily_w_t`，实际持仓为 `overlap_w_t = mean(daily_w_t, ..., daily_w_{t-d+1})`，即过去 d 天目标权重的滚动均值。每日仅操作约 1/d 仓位，压低换手率。收益与换手均基于 `overlap_w` 计算。`forward_days` 应与 alpha 的预测周期（如 `ml_analyze_main` 中的 `FORWARD_DAYS`）一致。默认 1 表示每日全仓换手。
 
 ##### 优化问题
 
@@ -403,7 +409,7 @@ $$\max_{w_t}\ w_t^\top\hat\alpha_t - \lambda\cdot\tfrac{1}{2}\|w_t - w_{t-1}\|_1
 - $w_{\text{bench}}$：基准行业权重，每日由 `meta.parquet` 中全部 CSI 300 股票的 `total_mv` 加权计算
 - $\delta = 0.01$：行业偏离容差（不可行时自动逐步放宽至 ±5%）
 
-约束：$\sum_i w_i = 1$，$w_i \ge 0$，$w_i \le 0.05$，$|X_{\text{ind}}^\top w_t - w_{\text{bench}}| \le \delta$
+约束：$\sum_i w_i = 1$，$w_i \ge 0$，$w_i \le 0.05$，$\tfrac{1}{2}\|w_t - w_{t-1}\|_1 \le \text{max\_turnover}$（默认 10%），$|X_{\text{ind}}^\top w_t - w_{\text{bench}}| \le \delta$。`max_turnover=None` 时禁用换手约束。
 
 **净收益计算**（独立于优化器）：$r_t^{\text{net}} = r_t^{\text{gross}} - \text{turnover}_t \times c_{\text{real}}$，其中 $c_{\text{real}} = 0.002$（实际交易费率，仅用于 P&L 扣费，与 $\lambda$ 完全分离）。
 
@@ -414,10 +420,12 @@ $$\max_{w_t}\ w_t^\top\hat\alpha_t - \lambda\cdot\tfrac{1}{2}\|w_t - w_{t-1}\|_1
 1. **执行假设与收益定义（与 targets.py 保持一致）**：T 日收盘计算信号，T+1 日开盘入场，T+2 日开盘出场/换仓。回测器使用 `open_wide.pct_change()` 作为持仓期收益，与 `forward_return = open_{T+2}/open_{T+1} - 1` 完全对齐，确保优化目标与实际 P&L 使用相同的收益定义。
 2. **双参数分离设计**：优化目标中的换手惩罚使用无量纲的 `lambda_turnover`（默认 0.2），P&L 扣费使用真实费率 `cost_rate`（0.002）。两者不可混用：ML alpha 是百分位秩（量级 ~0.5），若直接用 0.002 作为惩罚系数，换手项量级比 alpha 项小 250 倍，优化器实际上完全忽略换手，导致每日暴力翻仓。
 3. **截面 alpha 去均值**：进入优化器前每日截面减均值，保证信号对称分布在 0 附近，`lambda_turnover` 量级具有跨时间的一致性。
-4. **行业约束动态基准**：基准权重每日更新（不使用静态值），反映 CSI 300 真实行业构成变化。
-5. **不可行日自动处理**：$\delta$ 依次扩大（0.01 → 0.02 → ... → 0.05），所有容差均失败时去掉行业约束求解，报告中记录发生次数。
-6. **首日初始化**：$w_0 = \mathbf{0}$（空仓），第一个有效日完整买入，换手率≈100% 计入成本。
-7. **基准超额收益分析**：`NetReturnBacktester` 和 `OptimizationBacktester` 均支持可选的 `benchmark_prices` 参数（CSI 300 每日收盘价 Series）。传入后会：
+4. **换手率硬约束**：$\tfrac{1}{2}\|w - w_{\text{prev}}\|_1 \le \text{max\_turnover}$（默认 10%）。`max_turnover=None` 时禁用。
+5. **行业约束动态基准**：基准权重每日更新（不使用静态值），反映 CSI 300 真实行业构成变化。
+6. **不可行日自动处理**：$\delta$ 依次扩大（0.01 → 0.02 → ... → 0.05），所有容差均失败时去掉行业约束求解，报告中记录发生次数。
+7. **首日初始化**：$w_0 = \mathbf{0}$（空仓），第一个有效日完整买入，换手率≈100% 计入成本。
+8. **重叠组合（forward_days > 1）**：与 `NetReturnBacktester` 一致，`overlap_w = rolling_mean(daily_w, d)`，前 d 行 trim 掉。`optimization_main` 中 `FORWARD_DAYS=3` 与 `ml_analyze_main` 保持一致。
+9. **基准超额收益分析**：`NetReturnBacktester` 和 `OptimizationBacktester` 均支持可选的 `benchmark_prices` 参数（CSI 300 每日收盘价 Series）。传入后会：
    - 计算超额日收益 `excess_ret = strategy_ret - bench_ret`；
    - 在 `run_backtest()` 报告中追加五项指标：`Bench Ann Return`、`Excess Ann Return`、`Tracking Error`、`Information Ratio`、`Max Relative DD`；
    - 将图表改为**双面板**：上栏绝对净值（策略蓝色 + 沪深300橙色）、下栏超额净值（绿色，基准为 1.0 水平线）并标注 IR / Tracking Error。

@@ -54,7 +54,7 @@ class AlphaLGBM:
         self.model = lgb.LGBMRegressor(
             objective="regression",
             n_estimators=2000,
-            learning_rate=0.005,
+            learning_rate=0.01,
             max_depth=5,
             num_leaves=20,
             subsample=0.8,
@@ -63,7 +63,7 @@ class AlphaLGBM:
             min_child_samples=30,
             reg_alpha=0.1,
             reg_lambda=0.5,
-            random_state=42,
+            random_state=7,
             n_jobs=-1,
             verbose=-1,
         )
@@ -92,7 +92,7 @@ class AlphaLGBM:
         self.feature_names = X_train.columns.tolist()
 
         callbacks = [
-            lgb.early_stopping(stopping_rounds=150, verbose=False),
+            lgb.early_stopping(stopping_rounds=100, verbose=False),
             lgb.log_evaluation(period=-1),
         ]
 

@@ -10,6 +10,7 @@ Problem (per trading day t)
     s.t.  sum(w) = 1                           (fully invested)
           w >= 0                                (long only)
           w <= max_weight                       (single-stock cap)
+          0.5||w - w_prev||_1 <= max_turnover   (daily turnover cap, if set)
           |X_ind' w - w_bench| <= tol           (industry neutrality)
 
 where
@@ -55,8 +56,8 @@ and a warning is printed.
 Public API
 ----------
     opt = PortfolioOptimizer(lambda_turnover=0.2, max_weight=0.05,
-                             industry_tol=0.01, industry_tol_max=0.05,
-                             industry_tol_step=0.01)
+                             max_turnover=0.10, industry_tol=0.01,
+                             industry_tol_max=0.05, industry_tol_step=0.01)
     w_star, tol_used = opt.solve(alpha_centered_t, w_prev, X_industry, w_benchmark)
 """
 
@@ -104,6 +105,9 @@ class PortfolioOptimizer:
         this parameter.
     max_weight : float
         Maximum weight allowed for any single stock (default 0.05 = 5%).
+    max_turnover : float or None
+        Hard cap on daily one-way turnover: 0.5||w - w_prev||_1 <= max_turnover.
+        Default 0.10 = 10% daily turnover limit.  None disables this constraint.
     industry_tol : float
         Initial allowed absolute deviation of portfolio industry weights from
         the benchmark (default 0.01 = ±1 pp).
@@ -122,10 +126,12 @@ class PortfolioOptimizer:
         industry_tol: float = 0.01,
         industry_tol_max: float = 0.05,
         industry_tol_step: float = 0.01,
+        max_turnover: Optional[float] = 0.10,
         solver: Optional[str] = None,
     ) -> None:
         self.lambda_turnover = lambda_turnover
         self.max_weight = max_weight
+        self.max_turnover = max_turnover
         self.industry_tol = industry_tol
         self.industry_tol_max = industry_tol_max
         self.industry_tol_step = industry_tol_step
@@ -197,6 +203,9 @@ class PortfolioOptimizer:
             cp.sum(w) == 1,
             w <= self.max_weight,
         ]
+        if self.max_turnover is not None:
+            # 0.5||w - w_prev||_1 <= max_turnover  <=>  ||w - w_prev||_1 <= 2*max_turnover
+            base_constraints.append(cp.norm1(w - w_prev) <= 2 * self.max_turnover)
 
         # Try progressively relaxed industry tolerances
         tol_values = np.round(

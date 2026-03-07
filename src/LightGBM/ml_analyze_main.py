@@ -16,7 +16,7 @@ Workflow
     Backtest / IC   : raw forward_return (unmodified).
 5.  Initialise WalkForwardSplitter (train=18m, val=3m, test=3m, embargo=1d).
 6.  Per fold: train AlphaLGBM on cs_rank_return, predict test set, record predictions.
-7.  Concatenate all fold predictions; apply 3-day rolling-mean smoothing.
+7.  Concatenate all fold predictions; apply optional rolling-mean and/or EMA smoothing.
 8.  IC analysis (Spearman IC vs raw forward_return): IC mean / std / ICIR, IC chart.
 9.  Industry-neutral layered backtest (Plan B: industry-equal-weight) → NAV chart.
 10. Industry-neutral net return backtest (Plan B long-only) → NAV + cost metrics.
@@ -71,12 +71,16 @@ PLOTS_DIR   = _ROOT / "plots"
 RESULT_FILE = _ROOT / "result_ml.txt"
 
 FORWARD_DAYS: int = 1
-TRAIN_MONTHS: int = 18
+TRAIN_MONTHS: int = 15
 VAL_MONTHS: int = 3
 TEST_MONTHS: int = 3
 EMBARGO_DAYS: int = 1        # must be >= FORWARD_DAYS to prevent target leakage
 SHAP_SAMPLE_SIZE: int = 300  # rows sub-sampled for SHAP (speed)
 SHAP_TOP_N: int = 10         # features displayed in beeswarm
+
+# Alpha smoothing (step 7).  Both default to disabled.
+ALPHA_ROLLING_WINDOW: int = 1   # rolling mean window; 1 = no smoothing
+ALPHA_EMA_BETA: float = 0.5     # EMA: alpha'_t = beta*alpha_t + (1-beta)*alpha'_{t-1}; 1 = no smoothing
 
 # ---------------------------------------------------------------------------
 # Console helpers
@@ -249,6 +253,7 @@ def main() -> None:
         val_months=VAL_MONTHS,
         test_months=TEST_MONTHS,
         embargo_days=EMBARGO_DAYS,
+        expanding=True,
     )
 
     estimated_folds = splitter.n_splits(df_merged)
@@ -312,24 +317,53 @@ def main() -> None:
         last_model  = ml_model
 
     # -----------------------------------------------------------------------
-    # 7. Assemble final alpha with 3-day rolling mean smoothing
+    # 7. Assemble final alpha with optional rolling mean + EMA smoothing
     # -----------------------------------------------------------------------
     _section("Assembling Final ML Alpha", report_buf)
 
     final_alpha_df = pd.concat(all_predictions, ignore_index=True)
-
-    # 3-day rolling mean per stock: smooths noise and lowers turnover.
-    # Stocks with fewer than 3 history points in the prediction window → NaN.
     final_alpha_df = final_alpha_df.sort_values(
         ["ts_code", "trade_date"]
     ).reset_index(drop=True)
-    final_alpha_df["ml_alpha"] = (
-        final_alpha_df.groupby("ts_code")["ml_alpha"]
-        .transform(lambda s: s.rolling(window=1, min_periods=1).mean())
-    )
-    final_alpha_df = final_alpha_df.dropna(subset=["ml_alpha"]).reset_index(drop=True)
 
-    _print(f"   shape      : {final_alpha_df.shape}  (after 3-day smoothing)", report_buf)
+    # Step 1: Rolling mean per stock (window=1 → identity)
+    if ALPHA_ROLLING_WINDOW > 1:
+        final_alpha_df["ml_alpha"] = (
+            final_alpha_df.groupby("ts_code")["ml_alpha"]
+            .transform(
+                lambda s: s.rolling(
+                    window=ALPHA_ROLLING_WINDOW,
+                    min_periods=ALPHA_ROLLING_WINDOW,
+                ).mean()
+            )
+        )
+        final_alpha_df = final_alpha_df.dropna(subset=["ml_alpha"])
+    # else: window=1, no change
+
+    # Step 2: EMA per stock: alpha'_t = beta*alpha_t + (1-beta)*alpha'_{t-1}
+    # beta=1 → identity.  Uses ewm(alpha=beta, adjust=False).
+    if ALPHA_EMA_BETA < 1.0:
+        final_alpha_df["ml_alpha"] = (
+            final_alpha_df.groupby("ts_code")["ml_alpha"]
+            .transform(lambda s: s.ewm(alpha=ALPHA_EMA_BETA, adjust=False).mean())
+        )
+
+    final_alpha_df = final_alpha_df.reset_index(drop=True)
+
+    smoothing_desc = []
+    if ALPHA_ROLLING_WINDOW > 1:
+        smoothing_desc.append(f"rolling(window={ALPHA_ROLLING_WINDOW})")
+    if ALPHA_EMA_BETA < 1.0:
+        smoothing_desc.append(f"EMA(beta={ALPHA_EMA_BETA})")
+    _print(
+        f"   shape      : {final_alpha_df.shape}"
+        + (f"  (after {' + '.join(smoothing_desc)})" if smoothing_desc else ""),
+        report_buf,
+    )
+    smooth_params = f"   smoothing  : rolling_window={ALPHA_ROLLING_WINDOW}, ema_beta={ALPHA_EMA_BETA}"
+    if ALPHA_ROLLING_WINDOW == 1 and ALPHA_EMA_BETA >= 1.0:
+        smooth_params += "  (both 1 = disabled)"
+    _print(smooth_params, report_buf)
     _print(
         f"   date range : {final_alpha_df['trade_date'].min()} → "
         f"{final_alpha_df['trade_date'].max()}",

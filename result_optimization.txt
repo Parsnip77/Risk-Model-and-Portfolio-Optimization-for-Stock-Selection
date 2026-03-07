@@ -3,11 +3,11 @@
   Stage 4 · Convex Portfolio Optimisation Backtest
 ======================================================================
 1. Loading parquet files ...
-   ml_alpha shape : (179287, 3)
+   ml_alpha shape : (197614, 3)
    prices   shape : (361333, 9)
    meta     shape : (361333, 18)
    index prices  : 1214 rows
-   alpha date range : 20210318 → 20231019
+   alpha date range : 20201209 → 20231019
 
 ======================================================================
   Optimisation Settings
@@ -15,7 +15,7 @@
 Objective  : max  w' alpha_centered - lambda_TO/2 * ||w - w_prev||_1
              (alpha_centered = alpha - cross_sectional_mean(alpha))
 
-lambda_turnover : 0.015
+lambda_turnover : 0.0
   → turnover-aversion coefficient (dimensionless policy knob, NOT a cost rate)
   → tune by inspecting Avg Daily Turnover in the report below
 
@@ -24,7 +24,9 @@ cost_rate : 0.0020
   → net_return = gross_return - turnover * cost_rate
 
 Max weight per stock : 5%
-Industry neutrality  : ±1% tolerance (auto-relax up to ±5%)
+Max turnover         : 20%
+Industry neutrality  : ±10% tolerance (auto-relax up to ±5%)
+Forward days (d)     : 1  (overlapping portfolio when > 1)
 Solver               : CLARABEL (cvxpy default for LP)
 
 ======================================================================
@@ -36,24 +38,24 @@ Solver               : CLARABEL (cvxpy default for LP)
   Performance Summary
 ======================================================================
 
-Cum Return           -0.157550
-Ann Return           -0.066584
-Ann Vol               0.169657
-Sharpe               -0.569292
-Max DD               -0.270768
-Avg Daily Turnover    0.049480
-Breakeven Turnover   -0.144842
+Cum Return           -0.181468
+Ann Return           -0.070325
+Ann Vol               0.212581
+Sharpe               -0.471939
+Max DD               -0.366468
+Avg Daily Turnover    0.200926
+Breakeven Turnover   -0.002469
 Relaxation Events     0.000000
-Bench Ann Return     -0.139943
-Excess Ann Return     0.081107
-Tracking Error        0.124339
-Information Ratio     0.652305
-Max Relative DD      -0.068475
+Bench Ann Return     -0.115043
+Excess Ann Return     0.055600
+Tracking Error        0.158928
+Information Ratio     0.349843
+Max Relative DD      -0.095513
 
 ======================================================================
   Industry Tolerance Relaxation Log
 ======================================================================
-   Relaxation events : 0 / 627 trading days (0.0%)
+   Relaxation events : 0 / 692 trading days (0.0%)
 
 ======================================================================
   Saving Outputs

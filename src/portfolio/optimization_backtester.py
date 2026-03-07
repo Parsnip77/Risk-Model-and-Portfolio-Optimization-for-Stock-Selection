@@ -61,6 +61,15 @@ This is consistent with ``calc_forward_return`` in targets.py, which sets
 so the LP objective (maximise expected forward return) and the P&L
 accounting use identical return definitions.
 
+Overlapping portfolio (when forward_days > 1)
+----------------------------------------------
+When forward_days = d > 1, the backtest uses overlapping portfolio logic
+identical to net_backtester.py: daily_w_t is the optimizer output each day,
+and the actual held portfolio is overlap_w_t = mean(daily_w_t, ..., daily_w_{t-d+1}).
+This smooths turnover so that only 1/d of the portfolio is traded each day.
+Gross return and turnover are computed from overlap_w, not daily_w.
+The first d rows are trimmed (incomplete rolling window).
+
 Portfolio construction (per day t)
 ------------------------------------
 1. Retrieve alpha_t (ML predictions) and tradability flag for each stock.
@@ -92,7 +101,8 @@ Public API
                                   cost_rate=0.002,
                                   lambda_turnover=0.2,
                                   rf=0.03, max_weight=0.05,
-                                  industry_tol=0.01, plots_dir=None)
+                                  industry_tol=0.01, max_turnover=0.10,
+                                  forward_days=1, plots_dir=None)
     summary = obt.run_backtest()   # pd.Series of performance metrics
     fig     = obt.plot(show=False) # cumulative NAV chart
 """
@@ -102,6 +112,7 @@ from __future__ import annotations
 import math
 import pathlib
 import warnings
+from collections import deque
 from typing import Optional
 
 import numpy as np
@@ -145,6 +156,16 @@ class OptimizationBacktester:
     industry_tol : float
         Initial industry-deviation tolerance passed to the optimiser
         (default 0.01 = ±1 pp).  Auto-relaxed up to 5% on infeasible days.
+    max_turnover : float or None
+        Hard cap on daily one-way turnover: 0.5||w - w_prev||_1 <= max_turnover.
+        Default 0.10 = 10%.  None disables this constraint.
+    forward_days : int
+        Holding period (number of overlapping buckets).  When > 1, uses
+        overlapping portfolio logic: overlap_w = rolling mean of daily
+        optimizer outputs over the last d days, so only 1/d of the
+        portfolio is traded each day to reduce turnover.  Must match
+        the alpha's prediction horizon (e.g. FORWARD_DAYS in ml_analyze_main).
+        Default 1 = no overlapping (daily full rebalance).
     plots_dir : path-like, optional
         Directory to save the NAV chart.  None disables file output.
     """
@@ -161,6 +182,8 @@ class OptimizationBacktester:
         rf: float = 0.03,
         max_weight: float = 0.05,
         industry_tol: float = 0.01,
+        max_turnover: Optional[float] = 0.10,
+        forward_days: int = 1,
         plots_dir: Optional[pathlib.Path | str] = None,
         benchmark_prices: Optional[pd.Series] = None,
     ) -> None:
@@ -177,6 +200,8 @@ class OptimizationBacktester:
         self.rf = rf
         self.max_weight = max_weight
         self.industry_tol = industry_tol
+        self.max_turnover = max_turnover
+        self.forward_days = max(1, int(forward_days))
         self.plots_dir = pathlib.Path(plots_dir) if plots_dir is not None else None
 
         # Benchmark (optional): CSI 300 close-price Series (index=trade_date)
@@ -328,8 +353,12 @@ class OptimizationBacktester:
         meta_sub = self._meta_df[available_meta].copy()
         has_mv = "total_mv" in meta_sub.columns
 
-        # ---- Initialise full portfolio weight vector ------------------
-        w_full = pd.Series(0.0, index=all_stocks)
+        # ---- Initialise portfolio weight vectors ----------------------
+        # overlap_w_prev: actual held portfolio (used for gross return and
+        #                optimizer w_prev).  When forward_days > 1, this is
+        #                the rolling mean of daily optimizer outputs.
+        overlap_w_prev = pd.Series(0.0, index=all_stocks)
+        daily_w_history: deque[pd.Series] = deque(maxlen=self.forward_days)
 
         # ---- Pre-index meta by date for speed ------------------------
         meta_by_date = {
@@ -344,6 +373,7 @@ class OptimizationBacktester:
             lambda_turnover=self.lambda_turnover,
             max_weight=self.max_weight,
             industry_tol=self.industry_tol,
+            max_turnover=self.max_turnover,
         )
 
         gross_ret_list: list[float] = []
@@ -354,9 +384,9 @@ class OptimizationBacktester:
         self._relax_log = []
 
         for date in all_dates:
-            # Gross return using previous-day weights
+            # Gross return using previous-day overlap weights
             ret_today = stock_ret_wide.loc[date].fillna(0.0)
-            gross = float((w_full * ret_today).sum())
+            gross = float((overlap_w_prev * ret_today).sum())
 
             # Determine tradable universe for today
             tradable_row = tradable_wide.loc[date]
@@ -365,9 +395,10 @@ class OptimizationBacktester:
             S_t = all_stocks[valid_mask].tolist()
 
             if len(S_t) >= 2:
-                # Extract raw alpha and previous weights for S_t
+                # Extract raw alpha and previous overlap weights for S_t
+                # (optimizer penalizes deviation from actual held portfolio)
                 alpha_t = alpha_row[S_t].values.astype(float)
-                w_prev  = w_full[S_t].values.astype(float)
+                w_prev  = overlap_w_prev[S_t].values.astype(float)
 
                 # Cross-sectional de-mean: centres signal around 0 so that
                 # lambda_turnover operates in a stable numeric range.
@@ -403,11 +434,16 @@ class OptimizationBacktester:
                     })
             else:
                 # Too few tradable stocks: hold current position (no trade)
-                w_new = w_full.copy()
-                w_new[~w_full.index.isin(S_t)] = 0.0
+                w_new = overlap_w_prev.copy()
+                w_new[~overlap_w_prev.index.isin(S_t)] = 0.0
 
-            # Turnover = half L1 norm of weight change (one-way)
-            turnover = 0.5 * float((w_new - w_full).abs().sum())
+            # Overlapping portfolio: overlap_w = rolling mean of daily optimizer
+            # outputs.  When forward_days > 1, only 1/d of portfolio trades daily.
+            daily_w_history.append(w_new)
+            overlap_w_t = sum(daily_w_history) / len(daily_w_history)
+
+            # Turnover = half L1 norm of overlap weight change (one-way)
+            turnover = 0.5 * float((overlap_w_t - overlap_w_prev).abs().sum())
 
             # Net return: deduct actual trading costs (uses cost_rate, not lambda)
             net = gross - turnover * self.cost_rate
@@ -417,12 +453,14 @@ class OptimizationBacktester:
             net_ret_list.append(net)
             date_index.append(date)
 
-            w_full = w_new
+            overlap_w_prev = overlap_w_t
 
-        # Skip the very first row (no previous-day weights, gross=0)
-        self._gross_ret = pd.Series(gross_ret_list[1:], index=date_index[1:])
-        self._turnover  = pd.Series(turnover_list[1:],  index=date_index[1:])
-        self._net_ret   = pd.Series(net_ret_list[1:],   index=date_index[1:])
+        # Trim first forward_days rows (incomplete rolling window; matches
+        # net_backtester behaviour when d > 1)
+        trim = self.forward_days
+        self._gross_ret = pd.Series(gross_ret_list[trim:], index=date_index[trim:])
+        self._turnover  = pd.Series(turnover_list[trim:],  index=date_index[trim:])
+        self._net_ret   = pd.Series(net_ret_list[trim:],   index=date_index[trim:])
 
     def _build_industry_inputs(
         self,
@@ -553,7 +591,8 @@ class OptimizationBacktester:
         title = (
             f"Optimised Portfolio — Net Return (after costs)\n"
             f"lambda_TO={self.lambda_turnover},  cost={self.cost_rate:.2%},  "
-            f"max_w={self.max_weight:.0%},  ind_tol=±{self.industry_tol:.0%}"
+            f"d={self.forward_days}d,  max_w={self.max_weight:.0%},  "
+            f"ind_tol=±{self.industry_tol:.0%}"
         )
 
         has_bench = self._benchmark_prices is not None

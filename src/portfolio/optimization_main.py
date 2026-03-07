@@ -79,7 +79,7 @@ RESULT_FILE = _ROOT / "result_optimization.txt"
 
 # --- Two separate cost-related parameters (do NOT merge into one) -----------
 
-LAMBDA_TURNOVER: float = 0.015
+LAMBDA_TURNOVER: float = 0.00
 # Turnover-aversion coefficient in the LP objective.  Dimensionless policy knob.
 # Because alpha is in rank-score units (~±0.5 after de-meaning), NOT return
 # units (~±0.01), using the monetary cost rate (0.002) here would make the
@@ -96,7 +96,11 @@ COST_RATE: float = 0.002
 # --- Other optimiser settings -----------------------------------------------
 RF:             float = 0.03     # annual risk-free rate
 MAX_WEIGHT:     float = 0.05     # per-stock weight cap
-INDUSTRY_TOL:   float = 0.01     # initial industry deviation tolerance (±1 pp)
+MAX_TURNOVER:   float | None = 0.20  # daily turnover cap 0.5||w-w_prev||_1; None=disabled
+INDUSTRY_TOL:   float = 0.10     # initial industry deviation tolerance (±1 pp)
+FORWARD_DAYS:   int   = 1        # holding period; must match ml_analyze_main
+                                 # (alpha predicts d-day return).  When > 1,
+                                 # uses overlapping portfolio to reduce turnover.
 
 # ---------------------------------------------------------------------------
 # Console helpers
@@ -192,7 +196,9 @@ def main() -> None:
           → net_return = gross_return - turnover * cost_rate
 
         Max weight per stock : {MAX_WEIGHT:.0%}
+        Max turnover         : {f'{MAX_TURNOVER:.0%}' if MAX_TURNOVER is not None else 'None (disabled)'}
         Industry neutrality  : ±{INDUSTRY_TOL:.0%} tolerance (auto-relax up to ±5%)
+        Forward days (d)     : {FORWARD_DAYS}  (overlapping portfolio when > 1)
         Solver               : CLARABEL (cvxpy default for LP)
         """).strip(),
         report_buf,
@@ -213,6 +219,8 @@ def main() -> None:
         rf=RF,
         max_weight=MAX_WEIGHT,
         industry_tol=INDUSTRY_TOL,
+        max_turnover=MAX_TURNOVER,        # daily turnover cap; None=disabled
+        forward_days=FORWARD_DAYS,       # match alpha prediction horizon
         plots_dir=PLOTS_DIR,
         benchmark_prices=index_prices,    # CSI 300 for excess-return metrics
     )
