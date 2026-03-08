@@ -86,8 +86,9 @@ Public API
     opt = PortfolioOptimizer(lambda_turnover=0.2, max_weight=0.05,
                              max_turnover=0.10, industry_tol=0.01,
                              mu_risk=0.0, max_variance=None)
-    w_star, tol_used = opt.solve(alpha_t, w_prev, X_industry, w_benchmark,
-                                 X_risk=X_t, F_half=L_T, delta_std=delta_t)
+    w_star, tol_used, fallback_used = opt.solve(alpha_t, w_prev, X_industry,
+                                                w_benchmark, X_risk=X_t,
+                                                F_half=L_T, delta_std=delta_t)
 """
 
 from __future__ import annotations
@@ -156,6 +157,9 @@ class PortfolioOptimizer:
         Only active when X_risk, F_half, delta_std are passed to solve().
     solver : str or None
         cvxpy solver name.  None lets cvxpy choose (CLARABEL supports LP and SOCP).
+    style_tol : float
+        Absolute tolerance for style factor neutrality: |w_active' X_factor| <= style_tol.
+        Only active when w_benchmark_stock and X_style are passed to solve().
     """
 
     def __init__(
@@ -169,6 +173,7 @@ class PortfolioOptimizer:
         mu_risk: float = 0.0,
         max_variance: Optional[float] = None,
         solver: Optional[str] = None,
+        style_tol: float = 0.05,
     ) -> None:
         self.lambda_turnover   = lambda_turnover
         self.max_weight        = max_weight
@@ -179,6 +184,7 @@ class PortfolioOptimizer:
         self.mu_risk           = mu_risk
         self.max_variance      = max_variance
         self.solver            = solver
+        self.style_tol         = style_tol
 
     # ------------------------------------------------------------------
     # Public API
@@ -193,7 +199,9 @@ class PortfolioOptimizer:
         X_risk: Optional[np.ndarray] = None,
         F_half: Optional[np.ndarray] = None,
         delta_std: Optional[np.ndarray] = None,
-    ) -> tuple[np.ndarray, Optional[float]]:
+        w_benchmark_stock: Optional[np.ndarray] = None,
+        X_style: Optional[np.ndarray] = None,
+    ) -> tuple[np.ndarray, Optional[float], bool]:
         """Solve the portfolio optimisation problem for a single day.
 
         Parameters
@@ -220,6 +228,11 @@ class PortfolioOptimizer:
             Satisfies: F = F_half.T @ F_half.
         delta_std : np.ndarray or None, shape (n,)
             Per-stock idiosyncratic standard deviation (sqrt(Δ_{ii})).
+        w_benchmark_stock : np.ndarray or None, shape (n,)
+            Stock-level benchmark weights (e.g. market-cap weighted).  When
+            provided with X_style, adds |w_active' X_factor| <= style_tol constraints.
+        X_style : np.ndarray or None, shape (n, K_style)
+            Style factor exposure matrix.  Must be provided with w_benchmark_stock.
 
         Returns
         -------
@@ -229,14 +242,17 @@ class PortfolioOptimizer:
             Industry tolerance actually used.  Equal to ``industry_tol`` when
             the problem solved on the first try; larger if relaxed; None if the
             industry constraint was dropped as a last resort.
+        fallback_used : bool
+            True if the solution was rejected due to constraint violation
+            or solver failure and equal weights were returned instead.
         """
         n = len(alpha_t)
 
         # Handle edge cases
         if n == 0:
-            return np.array([]), None
+            return np.array([]), None, False
         if n == 1:
-            return np.array([1.0]), self.industry_tol
+            return np.array([1.0]), self.industry_tol, False
 
         alpha_t  = np.asarray(alpha_t,  dtype=float)
         w_prev   = np.asarray(w_prev,   dtype=float)
@@ -287,6 +303,23 @@ class PortfolioOptimizer:
             # w^T Σ w <= 2 * max_variance
             base_constraints.append(risk_quad <= 2 * self.max_variance)
 
+        # Style factor neutrality: |w_active' X_factor_k| <= style_tol
+        w_bench_stock = np.asarray(w_benchmark_stock, dtype=float) if w_benchmark_stock is not None else None
+        X_style_arr = np.asarray(X_style, dtype=float) if X_style is not None else None
+        style_active = (
+            w_bench_stock is not None
+            and X_style_arr is not None
+            and X_style_arr.size > 0
+            and len(w_bench_stock) == n
+            and X_style_arr.shape[0] == n
+        )
+        if style_active:
+            w_active = w - w_bench_stock
+            for k in range(X_style_arr.shape[1]):
+                x_k = X_style_arr[:, k]
+                base_constraints.append(cp.sum(cp.multiply(w_active, x_k)) >= -self.style_tol)
+                base_constraints.append(cp.sum(cp.multiply(w_active, x_k)) <= self.style_tol)
+
         # Try progressively relaxed industry tolerances
         tol_values = np.round(
             np.arange(
@@ -305,7 +338,17 @@ class PortfolioOptimizer:
             problem = cp.Problem(objective, base_constraints + industry_constraints)
             self._solve_problem(problem)
             if problem.status in ("optimal", "optimal_inaccurate") and w.value is not None:
-                return np.clip(w.value, 0.0, None), float(tol)
+                ok, max_viol, msg = self._validate_solution(
+                    problem, w.value, risk_active,
+                    X_r if risk_active else None,
+                    F_h if risk_active else None,
+                    d_s if risk_active else None,
+                    w_bench_stock if style_active else None,
+                    X_style_arr if style_active else None,
+                )
+                if ok:
+                    return np.clip(w.value, 0.0, None), float(tol), False
+                # Constraint violation: try next tol
 
         # Last resort: drop industry constraint entirely
         warnings.warn(
@@ -317,19 +360,111 @@ class PortfolioOptimizer:
         problem_no_ind = cp.Problem(objective, base_constraints)
         self._solve_problem(problem_no_ind)
         if problem_no_ind.status in ("optimal", "optimal_inaccurate") and w.value is not None:
-            return np.clip(w.value, 0.0, None), None
+            ok, max_viol, msg = self._validate_solution(
+                problem_no_ind, w.value, risk_active,
+                X_r if risk_active else None,
+                F_h if risk_active else None,
+                d_s if risk_active else None,
+                w_bench_stock if style_active else None,
+                X_style_arr if style_active else None,
+            )
+            if ok:
+                return np.clip(w.value, 0.0, None), None, False
 
-        # Absolute fallback: equal weight
+        # Absolute fallback: equal weight (solver failed or constraints violated)
         warnings.warn(
-            "Optimisation failed entirely. Falling back to equal weights.",
+            "Optimisation failed or solution violates constraints. "
+            "Falling back to equal weights.",
             RuntimeWarning,
             stacklevel=2,
         )
-        return np.full(n, 1.0 / n), None
+        return np.full(n, 1.0 / n), None, True
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _validate_solution(
+        self,
+        problem: "cp.Problem",
+        w_value: np.ndarray,
+        risk_active: bool,
+        X_risk: Optional[np.ndarray],
+        F_half: Optional[np.ndarray],
+        delta_std: Optional[np.ndarray],
+        w_benchmark_stock: Optional[np.ndarray] = None,
+        X_style: Optional[np.ndarray] = None,
+    ) -> tuple[bool, float, str]:
+        """Check that the solution satisfies all constraints within tolerance.
+
+        Returns
+        -------
+        ok : bool
+            True if all constraints satisfied.
+        max_viol : float
+            Maximum violation across constraints.
+        msg : str
+            Description for logging.
+        """
+        tol = 1e-5
+        max_viol = 0.0
+        worst_msg = ""
+
+        # Check cvxpy constraint violations
+        for c in problem.constraints:
+            try:
+                v = c.violation()
+                if v is not None:
+                    arr = np.atleast_1d(np.asarray(v))
+                    m = float(np.abs(arr).max())
+                    if m > max_viol:
+                        max_viol = m
+                        worst_msg = f"constraint violation {m:.2e}"
+            except (ValueError, TypeError):
+                pass
+
+        # Explicit max_variance check (cvxpy canonicalization may obscure this)
+        if (
+            risk_active
+            and self.max_variance is not None
+            and X_risk is not None
+            and F_half is not None
+            and delta_std is not None
+        ):
+            w_val = np.asarray(w_value, dtype=float)
+            z = F_half @ (X_risk.T @ w_val)
+            actual_var = float(np.dot(z, z) + np.dot(delta_std * w_val, delta_std * w_val))
+            limit = 2 * self.max_variance * (1 + 1e-5)
+            if actual_var > limit:
+                viol = actual_var - 2 * self.max_variance
+                if viol > max_viol:
+                    max_viol = viol
+                worst_msg = (
+                    f"max_variance violated: actual={actual_var:.2e} "
+                    f"> limit={2*self.max_variance:.2e}"
+                )
+
+        # Explicit style factor neutrality check
+        if (
+            w_benchmark_stock is not None
+            and X_style is not None
+            and X_style.size > 0
+        ):
+            w_val = np.asarray(w_value, dtype=float)
+            w_active = w_val - np.asarray(w_benchmark_stock, dtype=float)
+            for k in range(X_style.shape[1]):
+                exp_k = float(np.dot(w_active, X_style[:, k]))
+                if abs(exp_k) > self.style_tol + 1e-5:
+                    viol = abs(exp_k) - self.style_tol
+                    if viol > max_viol:
+                        max_viol = viol
+                    worst_msg = (
+                        f"style factor k={k} violated: |exposure|={abs(exp_k):.2e} "
+                        f"> tol={self.style_tol:.2e}"
+                    )
+
+        ok = max_viol <= tol
+        return ok, max_viol, worst_msg or "unknown"
 
     def _solve_problem(self, problem: "cp.Problem") -> None:
         """Invoke the cvxpy solver, suppressing verbose output."""
@@ -338,5 +473,9 @@ class PortfolioOptimizer:
             solver_kwargs["solver"] = self.solver
         try:
             problem.solve(**solver_kwargs)
-        except cp.SolverError:
-            pass
+        except cp.SolverError as e:
+            warnings.warn(
+                f"Solver failed: {e}. Status may be invalid.",
+                RuntimeWarning,
+                stacklevel=2,
+            )

@@ -115,6 +115,9 @@ import warnings
 from collections import deque
 from typing import Optional
 
+# Default style factors for neutrality (must exist in risk_exposure.parquet)
+DEFAULT_STYLE_FACTORS = ["size", "beta", "momentum", "volatility", "value"]
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -180,6 +183,17 @@ class OptimizationBacktester:
     max_variance : float or None
         Hard daily variance constraint: w^T Σ w <= 2 * max_variance.
         None disables this constraint.  Only used when use_risk_model=True.
+    solver : str or None
+        cvxpy solver name (e.g. "ECOS", "SCS").  None uses cvxpy default (CLARABEL).
+        ECOS often more reliable for infeasibility detection.
+    use_style_neutral : bool
+        If True, add hard constraints |w_active' X_factor| <= style_tol for each
+        style factor.  Requires use_risk_model=True.  Default False.
+    style_factors : list of str or None
+        Style factor names to neutralize.  None = use default 5 factors.
+        Must exist in risk_exposure.parquet columns.
+    style_tol : float
+        Absolute tolerance per style factor (z-score units).  Default 0.05.
     plots_dir : path-like, optional
         Directory to save the NAV chart.  None disables file output.
     """
@@ -201,6 +215,10 @@ class OptimizationBacktester:
         use_risk_model: bool = False,
         mu_risk: float = 0.0,
         max_variance: Optional[float] = None,
+        solver: Optional[str] = None,
+        use_style_neutral: bool = False,
+        style_factors: Optional[list[str]] = None,
+        style_tol: float = 0.05,
         plots_dir: Optional[pathlib.Path | str] = None,
         benchmark_prices: Optional[pd.Series] = None,
     ) -> None:
@@ -222,6 +240,10 @@ class OptimizationBacktester:
         self.use_risk_model  = use_risk_model
         self.mu_risk         = mu_risk
         self.max_variance    = max_variance
+        self.solver          = solver
+        self.use_style_neutral = use_style_neutral
+        self.style_factors   = style_factors if style_factors is not None else DEFAULT_STYLE_FACTORS
+        self.style_tol       = style_tol
         self.plots_dir       = pathlib.Path(plots_dir) if plots_dir is not None else None
 
         # Benchmark (optional): CSI 300 close-price Series (index=trade_date)
@@ -247,6 +269,7 @@ class OptimizationBacktester:
         self._variance: Optional[pd.Series]   = None   # daily realised w^T Σ w
         self._summary: Optional[pd.Series]    = None
         self._relax_log: list[dict]            = []    # records of tolerance relaxation
+        self._fallback_count: int              = 0     # days optimizer fell back to equal weight
 
     # ------------------------------------------------------------------
     # Risk model loading
@@ -348,6 +371,62 @@ class OptimizationBacktester:
             f_half_t,
             delta_sub.values.astype(float),
         )
+
+    def _build_stock_benchmark_weights(
+        self,
+        stocks: list[str],
+        meta_today: Optional[pd.DataFrame],
+        has_mv: bool,
+    ) -> np.ndarray:
+        """Build stock-level benchmark weights (market-cap weighted) for S_t.
+
+        Returns
+        -------
+        w_bench_stock : np.ndarray, shape (n,)
+            Benchmark weights summing to 1.  Equal weight if total_mv unavailable.
+        """
+        n = len(stocks)
+        if meta_today is None or meta_today.empty:
+            return np.full(n, 1.0 / n)
+
+        if has_mv and "total_mv" in meta_today.columns:
+            mv_sub = meta_today["total_mv"].reindex(stocks).fillna(0.0)
+            mv_total = float(mv_sub.sum())
+            if mv_total > 0:
+                w = (mv_sub / mv_total).values.astype(float)
+                return w / w.sum()
+        return np.full(n, 1.0 / n)
+
+    def _get_style_exposure(
+        self,
+        date: pd.Timestamp,
+        stocks: list[str],
+    ) -> Optional[np.ndarray]:
+        """Extract style factor exposures for the given date and stock universe.
+
+        Returns
+        -------
+        X_style : np.ndarray, shape (n, K_style) or None
+            Style factor exposure matrix.  None if use_risk_model=False or
+            data unavailable for this date.
+        """
+        if not self.use_risk_model or not self.use_style_neutral:
+            return None
+        if self._risk_exposure_by_date is None:
+            return None
+
+        date_norm = pd.to_datetime(date)
+        exp_day = self._risk_exposure_by_date.get(date_norm)
+        if exp_day is None:
+            return None
+
+        # Keep only columns that exist in risk_exposure
+        avail = [c for c in self.style_factors if c in exp_day.columns]
+        if not avail:
+            return None
+
+        X_sub = exp_day.reindex(stocks)[avail].fillna(0.0)
+        return X_sub.values.astype(float)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -506,6 +585,8 @@ class OptimizationBacktester:
             max_turnover=self.max_turnover,
             mu_risk=self.mu_risk,
             max_variance=self.max_variance,
+            solver=self.solver,
+            style_tol=self.style_tol,
         )
 
         gross_ret_list:  list[float] = []
@@ -515,6 +596,7 @@ class OptimizationBacktester:
         date_index:      list        = []
 
         self._relax_log = []
+        fallback_count = 0
 
         for date in all_dates:
             # Gross return using previous-day overlap weights
@@ -547,15 +629,28 @@ class OptimizationBacktester:
                 # Optional risk model inputs
                 X_risk_t, F_half_t, delta_std_t = self._get_risk_inputs(date, S_t)
 
+                # Optional style-neutral inputs (w_benchmark_stock, X_style)
+                w_bench_stock = None
+                X_style_t = None
+                if self.use_style_neutral:
+                    w_bench_stock = self._build_stock_benchmark_weights(
+                        S_t, meta_today, has_mv
+                    )
+                    X_style_t = self._get_style_exposure(date, S_t)
+
                 # Solve the LP/SOCP
                 with warnings.catch_warnings(record=True) as caught:
                     warnings.simplefilter("always")
-                    w_star, tol_used = optimiser.solve(
+                    w_star, tol_used, fallback_used = optimiser.solve(
                         alpha_t, w_prev, X_ind, w_bench,
                         X_risk=X_risk_t,
                         F_half=F_half_t,
                         delta_std=delta_std_t,
+                        w_benchmark_stock=w_bench_stock,
+                        X_style=X_style_t,
                     )
+                    if fallback_used:
+                        fallback_count += 1
                     for w in caught:
                         self._relax_log.append({
                             "date": date,
@@ -606,6 +701,7 @@ class OptimizationBacktester:
         # Trim first forward_days rows (incomplete rolling window; matches
         # net_backtester behaviour when d > 1)
         trim = self.forward_days
+        self._fallback_count = fallback_count
         self._gross_ret = pd.Series(gross_ret_list[trim:], index=date_index[trim:])
         self._turnover  = pd.Series(turnover_list[trim:],  index=date_index[trim:])
         self._variance  = pd.Series(variance_list[trim:],  index=date_index[trim:])
@@ -712,6 +808,7 @@ class OptimizationBacktester:
         metrics["Relaxation Events"]   = sum(
             1 for e in self._relax_log if "relaxed" in e.get("message", "")
         )
+        metrics["Equal-Weight Fallback Days"] = getattr(self, "_fallback_count", 0)
 
         # Risk model diagnostics (only meaningful when use_risk_model=True)
         if self._variance is not None and self._variance.notna().any():

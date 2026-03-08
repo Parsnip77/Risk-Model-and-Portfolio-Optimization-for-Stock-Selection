@@ -498,8 +498,9 @@ $$\max_{w_t}\ w_t^\top\hat\alpha_t - \lambda\cdot\tfrac{1}{2}\|w_t - w_{t-1}\|_1
 6. **不可行日自动处理**：$\delta_{\text{ind}}$ 依次扩大（0.01 → 0.02 → ... → 0.05），所有容差均失败时去掉行业约束求解，报告中记录发生次数。
 7. **首日初始化**：$w_0 = \mathbf{0}$（空仓），第一个有效日完整买入，换手率≈100% 计入成本。
 8. **重叠组合（forward_days > 1）**：与 `NetReturnBacktester` 一致，`overlap_w = rolling_mean(daily_w, d)`，前 d 行 trim 掉。`optimization_main` 中 `FORWARD_DAYS=3` 与 `ml_analyze_main` 保持一致。
-9. **风险模型集成（Stage 3 → Stage 4）**：`optimization_main.py` 中设置 `USE_RISK_MODEL=True` 即可启用。`OptimizationBacktester` 自动加载三个风险模型 parquet 文件，每日提取 $(X_t, L_t^\top, \delta_t)$ 传入 `PortfolioOptimizer.solve()`。优化器用 `cp.sum_squares` 实现 SOCP 风险项，无需构造 N×N 矩阵。回测报告额外输出 `Avg Daily Variance` 和 `Avg Daily Std (%)` 用于 `mu_risk` 标定。前置条件：已运行 `risk_model_main.py`。
-10. **基准超额收益分析**：`NetReturnBacktester` 和 `OptimizationBacktester` 均支持可选的 `benchmark_prices` 参数（CSI 300 每日收盘价 Series）。传入后会：
+9. **风险模型集成（Stage 3 → Stage 4）**：`optimization_main.py` 中设置 `USE_RISK_MODEL=True` 即可启用。`OptimizationBacktester` 自动加载三个风险模型 parquet 文件，每日提取 $(X_t, L_t^\top, \delta_t)$ 传入 `PortfolioOptimizer.solve()`。优化器用 `cp.sum_squares` 实现 SOCP 风险项，无需构造 N×N 矩阵。回测报告额外输出 `Avg Daily Variance` 和 `Avg Daily Std (%)` 用于 `mu_risk` 标定。前置条件：已运行 `risk_model_main.py`。可选 `SOLVER` 配置（如 `"ECOS"`、`"SCS"`）指定 cvxpy 求解器，默认 CLARABEL；ECOS 对不可行问题检测更可靠。**约束验证与回退**：求解器返回的解会经 `_validate_solution` 检查（含 cvxpy 约束 violation 及显式 max_variance 校验）；若违反容差 1e-5，则发出警告并退回等权，报告中 `Equal-Weight Fallback Days` 统计此类天数。
+10. **风格因子中性化（可选）**：设置 `USE_STYLE_NEUTRAL=True` 可对主动组合施加风格因子暴露约束。设 $w_{\text{active}} = w - w_{\text{benchmark}}$（股票级市值加权基准），约束为 $|w_{\text{active}}' X_{\text{factor}_k}| \le \text{style\_tol}$，对每个启用的风格因子 k。`STYLE_FACTORS` 默认 `["size", "beta", "momentum", "volatility", "value"]`，须为 `risk_exposure.parquet` 中存在的列。`STYLE_TOL` 默认 0.05（z-score 单位）。默认关闭，需 `USE_RISK_MODEL=True`。
+11. **基准超额收益分析**：`NetReturnBacktester` 和 `OptimizationBacktester` 均支持可选的 `benchmark_prices` 参数（CSI 300 每日收盘价 Series）。传入后会：
    - 计算超额日收益 `excess_ret = strategy_ret - bench_ret`；
    - 在 `run_backtest()` 报告中追加五项指标：`Bench Ann Return`、`Excess Ann Return`、`Tracking Error`、`Information Ratio`、`Max Relative DD`；
    - 将图表改为**双面板**：上栏绝对净值（策略蓝色 + 沪深300橙色）、下栏超额净值（绿色，基准为 1.0 水平线）并标注 IR / Tracking Error。
@@ -551,7 +552,8 @@ python src/risk_model/risk_model_main.py
 # 输出: data/risk_exposure.parquet, data/risk_cov_F.parquet, data/risk_delta.parquet
 
 # 7. 运行第四阶段总脚本（凸优化组合回测）
-#    在 optimization_main.py 中配置 USE_RISK_MODEL / MU_RISK / MAX_VARIANCE
+#    在 optimization_main.py 中配置 USE_RISK_MODEL / MU_RISK / MAX_VARIANCE /
+#    USE_STYLE_NEUTRAL / SOLVER
 python src/portfolio/optimization_main.py
 # 输出: result_optimization.txt, plots/optimization_nav.png
 ```

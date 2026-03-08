@@ -25,13 +25,16 @@ cost_rate : 0.0020
   → net_return = gross_return - turnover * cost_rate
 
 Max weight per stock : 5%
-Max turnover         : 20%
+Max turnover         : 22%
 Industry neutrality  : ±10% tolerance (auto-relax up to ±5%)
 Forward days (d)     : 1  (overlapping portfolio when > 1)
 Risk model           : ON
 mu_risk              : 0.0  (risk-aversion coefficient; 0 = disabled)
-max_variance         : 8e-05
-Solver               : CLARABEL (cvxpy default for LP/SOCP)
+max_variance         : None (disabled)
+Solver               : CLARABEL
+Style neutral        : ON
+Style factors        : ['value']
+Style tol            : ±0.5
 
 ======================================================================
   Running Optimisation Backtest ...
@@ -42,21 +45,22 @@ Solver               : CLARABEL (cvxpy default for LP/SOCP)
   Performance Summary
 ======================================================================
 
-Cum Return           -0.215525
-Ann Return           -0.084603
-Ann Vol               0.193354
-Sharpe               -0.592707
-Max DD               -0.376864
-Avg Daily Turnover    0.206808
-Breakeven Turnover   -0.027766
-Relaxation Events     0.000000
-Avg Daily Variance    0.000117
-Avg Daily Std (%)     1.079818
-Bench Ann Return     -0.115043
-Excess Ann Return     0.036216
-Tracking Error        0.145786
-Information Ratio     0.248419
-Max Relative DD      -0.112019
+Cum Return                   -0.190846
+Ann Return                   -0.074218
+Ann Vol                       0.209639
+Sharpe                       -0.497132
+Max DD                       -0.350987
+Avg Daily Turnover            0.220681
+Breakeven Turnover            0.009332
+Relaxation Events             0.000000
+Equal-Weight Fallback Days    1.000000
+Avg Daily Variance            0.000136
+Avg Daily Std (%)             1.167531
+Bench Ann Return             -0.115043
+Excess Ann Return             0.050751
+Tracking Error                0.153367
+Information Ratio             0.330915
+Max Relative DD              -0.081159
 
 ======================================================================
   Industry Tolerance Relaxation Log

@@ -96,7 +96,7 @@ COST_RATE: float = 0.002
 # --- Other optimiser settings -----------------------------------------------
 RF:             float = 0.03     # annual risk-free rate
 MAX_WEIGHT:     float = 0.05     # per-stock weight cap
-MAX_TURNOVER:   float | None = 0.20  # daily turnover cap 0.5||w-w_prev||_1; None=disabled
+MAX_TURNOVER:   float | None = 0.22  # daily turnover cap 0.5||w-w_prev||_1; None=disabled
 INDUSTRY_TOL:   float = 0.10     # initial industry deviation tolerance (±1 pp)
 FORWARD_DAYS:   int   = 1        # holding period; must match ml_analyze_main
                                  # (alpha predicts d-day return).  When > 1,
@@ -108,8 +108,20 @@ MU_RISK:        float       = 0.0    # risk-aversion penalty coefficient
                                      # 0.0 = disabled; try 1000~10000 when active
                                      # alpha scale (~0.5) / risk_quad scale (~1e-4)
                                      # => mu_risk ~5000 for equal weighting
-MAX_VARIANCE:   float | None = 0.00  # daily portfolio variance hard cap (w^T Σ w)
+MAX_VARIANCE:   float | None = None  # daily portfolio variance hard cap (w^T Σ w)
                                      # None = disabled; e.g. 2e-4 ≈ (1.4%/day)^2
+
+# --- Solver selection (cvxpy) -----------------------------------------------
+SOLVER: str | None = "CLARABEL"  # None = cvxpy default (CLARABEL)
+                            # "ECOS" or "SCS" for alternative SOCP solvers
+                            # ECOS often more reliable for infeasibility detection
+
+# --- Style factor neutrality (requires USE_RISK_MODEL) ----------------------
+USE_STYLE_NEUTRAL: bool = True   # True = add |w_active' X_factor| <= tol constraints
+# STYLE_FACTORS: list[str] = ["size", "beta", "momentum", "volatility", "value"]
+# critic values: size: 0.45, beta: 0.01, momentum: 0.01, volatility: 0.60, value 0.50: 
+STYLE_FACTORS: list[str] = ["value"]
+STYLE_TOL: float = 0.50   # absolute tolerance per factor (z-score units)
 
 # ---------------------------------------------------------------------------
 # Console helpers
@@ -212,7 +224,10 @@ def main() -> None:
         Risk model           : {'ON' if USE_RISK_MODEL else 'OFF'}
         mu_risk              : {MU_RISK}  (risk-aversion coefficient; 0 = disabled)
         max_variance         : {MAX_VARIANCE if MAX_VARIANCE is not None else 'None (disabled)'}
-        Solver               : CLARABEL (cvxpy default for LP/SOCP)
+        Solver               : {SOLVER if SOLVER else 'cvxpy default (CLARABEL)'}
+        Style neutral        : {'ON' if USE_STYLE_NEUTRAL else 'OFF'}
+        Style factors        : {STYLE_FACTORS if USE_STYLE_NEUTRAL else 'N/A'}
+        Style tol            : {f'±{STYLE_TOL}' if USE_STYLE_NEUTRAL else 'N/A'}
         """).strip(),
         report_buf,
     )
@@ -237,6 +252,10 @@ def main() -> None:
         use_risk_model=USE_RISK_MODEL,    # Stage 3 risk model integration
         mu_risk=MU_RISK,                  # risk-aversion penalty coefficient
         max_variance=MAX_VARIANCE,        # daily variance hard cap; None=disabled
+        solver=SOLVER,                   # cvxpy solver; None=default (CLARABEL)
+        use_style_neutral=USE_STYLE_NEUTRAL,
+        style_factors=STYLE_FACTORS,
+        style_tol=STYLE_TOL,
         plots_dir=PLOTS_DIR,
         benchmark_prices=index_prices,    # CSI 300 for excess-return metrics
     )
