@@ -306,7 +306,7 @@ $$
 w^\top \Sigma w = \underbrace{\|F_{\text{half}} \cdot (X_t^\top w)\|^2}_{\text{因子风险}} + \underbrace{\|\delta \odot w\|^2}_{\text{特异性风险}}
 $$
 
-其中 $F_{\text{half}} = L_t^\top$（Cholesky 上三角因子），$\delta = \sqrt{\text{diag}(\Delta_ t)}$。
+其中 $F_{\text{half}} = L_t^\top$（Cholesky 上三角因子），$ \delta = \sqrt{\text{diag}(\Delta_ t)} $。
 这样只需 K 维向量运算（K ≈ 33），无需实例化 N×N 矩阵，cvxpy 可将其表达为 SOCP。
 
 #### 运行方式
@@ -374,10 +374,12 @@ perf_table = bt.run_backtest()
 1. **行业内选股**：在每个 `(trade_date, industry)` 截面内，按因子值百分位选出前 `top_pct`（默认 20%）的股票。少于 2 只股票的行业当日不参与选股。
 
 2. **行业等权合成**：每只被选中的股票权重为：
+
    $$
-   w_s = \frac{1}{N_{\text{ind\_with\_top}} \times N_{\text{top\_in\_industry}(s)}}
+   w_s = \frac{1}{N_{\text{ind}\_\text{with}\_\text{top}} \times N_{\text{top}\_\text{in}\_\text{industry}(s)}}
    $$
-   其中 $N_{\text{ind\_with\_top}}$ 为当日至少贡献一只股票的行业数，$N_{\text{top\_in\_industry}(s)}$ 为股票 $s$ 所在行业当日被选中的股票数。整个组合权重合计为 1，每个行业贡献相同。
+   
+   其中 $N_{\text{ind}\_\text{with}\_\text{top}}$ 为当日至少贡献一只股票的行业数，$N_{\text{top}\_\text{in}\_\text{industry}(s)}$ 为股票 $s$ 所在行业当日被选中的股票数。整个组合权重合计为 1，每个行业贡献相同。
 
 后续重叠权重、换手率、净收益的计算逻辑与标准模式完全相同。
 
@@ -421,7 +423,9 @@ summary = nb.run_backtest()
 $$
 \max_{w_t}\ w_t^\top\hat\alpha_t - \lambda\cdot\tfrac{1}{2}\|w_t - w_{t-1}\|_1 - \tfrac{1}{2}\mu_{\text{risk}}\cdot w_t^\top\Sigma w_t
 $$
+
 各符号含义：
+
 - $\hat\alpha_t$：截面去均值后的 ML alpha 信号，范围约 $[-0.5,\,0.5]$。**去均值不改变截面排序**，仅将信号中心化为 0，使 $\lambda$ 的调参量级稳定。
 - $w_{t-1}$：前一日持仓权重（新股赋 0，退市股强制清仓）
 - $\lambda$（`lambda_turnover`）：换手惩罚系数，**无量纲的策略偏好参数**，非交易费率。根据报告中的 `Avg Daily Turnover` 手动调整：
@@ -441,8 +445,8 @@ $$
 * 单股权重上限：$w_i \le 0.05$
 * 日频换手率约束：$\tfrac{1}{2}\|w_t - w_{t-1}\|_1 \le \text{max\_turnover}$
 * 行业基准约束（追踪指数）：$|X_{\text{ind}}^\top w_t - w_{\text{bench}}| \le \delta_{\text{ind}}$
-* （可选）日方差约束： $w_t^\top \Sigma w_t \le 2 \cdot \text{max\_variance}$
-* （可选）风格因子暴露约束：$|w_{\text{active}}^\top X_{\text{factor}_k}| \le \text{style\_tol}$
+* （可选）日方差约束： $w_t^\top \Sigma w_t \le 2 \cdot \text{max}\_\text{variance}$
+* （可选）风格因子暴露约束：$|w_{\text{active}}^\top X_{\text{factor}_k}| \le \text{style}\_\text{tol}$
 
 **净收益计算**（独立于优化器）：$r_t^{\text{net}} = r_t^{\text{gross}} - \text{turnover}_t \times c_{\text{real}}$，其中 $c_{\text{real}} = 0.002$（实际交易费率，仅用于 P&L 扣费，与 $\lambda$ 无关）
 
