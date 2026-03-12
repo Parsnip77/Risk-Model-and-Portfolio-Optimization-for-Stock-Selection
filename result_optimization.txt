@@ -33,8 +33,8 @@ mu_risk              : 0.0  (risk-aversion coefficient; 0 = disabled)
 max_variance         : None (disabled)
 Solver               : CLARABEL
 Style neutral        : ON
-Style factors        : ['value']
-Style tol            : ±0.5
+Style factors        : []
+Style tol            : ±0.0
 
 ======================================================================
   Running Optimisation Backtest ...
@@ -45,22 +45,22 @@ Style tol            : ±0.5
   Performance Summary
 ======================================================================
 
-Cum Return                   -0.190846
-Ann Return                   -0.074218
-Ann Vol                       0.209639
-Sharpe                       -0.497132
-Max DD                       -0.350987
-Avg Daily Turnover            0.220681
-Breakeven Turnover            0.009332
+Cum Return                   -0.163812
+Ann Return                   -0.063072
+Ann Vol                       0.213276
+Sharpe                       -0.436395
+Max DD                       -0.349648
+Avg Daily Turnover            0.219841
+Breakeven Turnover            0.033142
 Relaxation Events             0.000000
 Equal-Weight Fallback Days    1.000000
-Avg Daily Variance            0.000136
-Avg Daily Std (%)             1.167531
+Avg Daily Variance            0.000139
+Avg Daily Std (%)             1.177445
 Bench Ann Return             -0.115043
-Excess Ann Return             0.050751
-Tracking Error                0.153367
-Information Ratio             0.330915
-Max Relative DD              -0.081159
+Excess Ann Return             0.063508
+Tracking Error                0.159645
+Information Ratio             0.397807
+Max Relative DD              -0.094601
 
 ======================================================================
   Industry Tolerance Relaxation Log
@@ -70,4 +70,4 @@ Max Relative DD              -0.081159
 ======================================================================
   Saving Outputs
 ======================================================================
-   NAV chart saved  : /Users/infinity/Desktop/Career/Quant/Projects/Risk-Model-and-Portfolio-Optimization-for-Stock-Selection/plots/optimization_nav.png
+   NAV chart saved  : /Users/infinity/Desktop/Career/Quant/Projects/Risk-Model-and-Portfolio-Optimization/plots/optimization_nav.png

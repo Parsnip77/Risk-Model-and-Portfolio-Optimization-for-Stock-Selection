@@ -280,6 +280,10 @@ CovarianceEstimator.compute()
     Δ_{ii,t} = var(ε_{i,t-59:t})，下界 = (0.5%)^2
     历史 < 30 日时用截面中位数填充
     → 输出 sqrt(Δ_{ii}) → data/risk_delta.parquet
+   ↓
+RiskModelValidator（RUN_VALIDATION=True 时）
+   → 沪深 300 市值加权组合：预测方差 w'Σw vs 已实现方差（20 日滚动）
+   → 输出 plots/risk_model_validation.png、result_risk_validation.txt
 ```
 
 #### 文件说明
@@ -288,7 +292,8 @@ CovarianceEstimator.compute()
 | ---------------------------------- | --------------------- | ---------------------------------------------------- |
 | `risk_model/risk_factor_engine.py` | `RiskFactorEngine`    | 计算 5 风格因子 + 行业哑变量，截面 z-score 标准化    |
 | `risk_model/cov_estimator.py`      | `CovarianceEstimator` | WLS 截面回归、滚动 60 日 F_t Cholesky 分解、Δ_t 估计 |
-| `risk_model/risk_model_main.py`    | `main()`              | 第三阶段端到端脚本，输出三个 parquet 文件            |
+| `risk_model/risk_model_validator.py` | `RiskModelValidator` | 预测 vs 已实现波动率验证，输出 R²、相关系数、偏差比、RMSE |
+| `risk_model/risk_model_main.py`    | `main()`              | 第三阶段端到端脚本，输出三个 parquet 文件，可选执行验证 |
 
 #### 输出 Parquet 文件
 
@@ -309,6 +314,17 @@ $$
 其中 $F_{\text{half}} = L_t^\top$（Cholesky 上三角因子），$\delta = \sqrt{\text{diag}(\Delta_t)}$。
 这样只需 K 维向量运算（K ≈ 33），无需实例化 N×N 矩阵，cvxpy 可将其表达为 SOCP。
 
+#### 风险模型验证（RiskModelValidator）
+
+对比沪深 300 市值加权组合的**预测方差** $w^\top \Sigma w$ 与**已实现方差**（组合收益的滚动样本方差）：
+
+| 指标 | 计算 | 含义 |
+|------|------|------|
+| R² | 线性回归 realized ~ predicted 的 $r^2$ | 预测对已实现的解释度，> 0.4 较好 |
+| Pearson / Spearman | 相关系数 | 线性/秩相关，> 0.6 较好 |
+| Bias ratio | mean(pred) / mean(real) | 接近 1 为无偏校准 |
+| RMSE_var / RMSE_vol | 方差/波动率空间的均方根误差 | 越小越好 |
+
 #### 运行方式
 
 ```bash
@@ -317,7 +333,8 @@ python src/data_preparation/data_preparation_main.py
 
 # 运行第三阶段（约 6~14 分钟）
 python src/risk_model/risk_model_main.py
-# 输出: data/risk_exposure.parquet, data/risk_cov_F.parquet, data/risk_delta.parquet
+# 输出: data/risk_exposure.parquet, data/risk_cov_F.parquet, data/risk_delta.parquet,
+#       plots/risk_model_validation.png, result_risk_validation.txt（RUN_VALIDATION=True 时）
 ```
 
 ---

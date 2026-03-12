@@ -14,7 +14,7 @@
 
 **第三阶段：风险模型构建层 + 风格因子计算**
 
-第三阶段基于第一阶段导出的行情与基本面数据构建多因子风险模型。计算 5 个风格因子（Size、Beta、Momentum、Volatility、Value）与申万一级行业哑变量，截面 winsorize ±3σ 后 z-score 标准化；对每日进行 WLS 截面回归得到因子收益与残差，滚动 60 日估计因子协方差矩阵 $F_t$ 与个股特异性方差 $Δ_{ii}$。最终将因子暴露矩阵、Cholesky 因子 $L_t^\top$、个股特异性标准差 $\sqrt{Δ_{ii}}$ 导出为三个 Parquet 文件，供第四阶段协方差矩阵分解为 SOCP 形式使用。总脚本由 `risk_model_main.py` 执行，输出 `risk_exposure.parquet`、`risk_cov_F.parquet`、`risk_delta.parquet`。
+第三阶段基于第一阶段导出的行情与基本面数据构建多因子风险模型。计算 5 个风格因子（Size、Beta、Momentum、Volatility、Value）与申万一级行业哑变量，截面 winsorize ±3σ 后 z-score 标准化；对每日进行 WLS 截面回归得到因子收益与残差，滚动 60 日估计因子协方差矩阵 $F_t$ 与个股特异性方差 $Δ_{ii}$。最终将因子暴露矩阵、Cholesky 因子 $L_t^\top$、个股特异性标准差 $\sqrt{Δ_{ii}}$ 导出为三个 Parquet 文件，供第四阶段协方差矩阵分解为 SOCP 形式使用。总脚本由 `risk_model_main.py` 执行，输出 `risk_exposure.parquet`、`risk_cov_F.parquet`、`risk_delta.parquet`；可选执行风险模型验证，输出 `plots/risk_model_validation.png` 与 `result_risk_validation.txt`。
 
 **第四阶段：投资组合优化层 + 净收益回测**
 
@@ -34,7 +34,11 @@
 
 ![shap_beeswarm](./plots/shap_beeswarm.png)
 
-2. 第四阶段组合优化策略净收益曲线（详细数据指标见 result_optimization.txt）
+2. 第三阶段风险模型预测效果验证图（详细数据指标见 result_risk_validation.txt）
+
+![risk_model_validation](./plots/risk_model_validation.png)
+
+3. 第四阶段组合优化策略净收益曲线（详细数据指标见 result_optimization.txt）
 
 ![optimization_nav](./plots/optimization_nav.png)
 
@@ -73,6 +77,7 @@
 │   │   ├── __init__.py
 │   │   ├── risk_factor_engine.py            # RiskFactorEngine：计算 5 风格因子 + 行业哑变量
 │   │   ├── cov_estimator.py                 # CovarianceEstimator：WLS 回归 + 滚动协方差估计
+│   │   ├── risk_model_validator.py          # RiskModelValidator：预测 vs 已实现波动率验证
 │   │   └── risk_model_main.py               # 第三阶段总脚本
 │   └── portfolio/                           # 第四阶段
 │       ├── __init__.py
@@ -132,7 +137,8 @@ python src/LightGBM/ml_analyze_main.py
 
 # 6. 运行第三阶段总脚本（多因子风险模型）
 python src/risk_model/risk_model_main.py
-# 输出: data/risk_exposure.parquet, data/risk_cov_F.parquet, data/risk_delta.parquet
+# 输出: data/risk_exposure.parquet, data/risk_cov_F.parquet, data/risk_delta.parquet,
+#       plots/risk_model_validation.png, result_risk_validation.txt（RUN_VALIDATION=True 时）
 
 # 7. 运行第四阶段总脚本（凸优化组合回测）
 #    在 optimization_main.py 中配置 USE_RISK_MODEL / MU_RISK / MAX_VARIANCE /

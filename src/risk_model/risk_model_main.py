@@ -16,6 +16,9 @@ Workflow
       c. Compute rolling 60-day per-stock idiosyncratic variance Δ_t
     Save Cholesky factors L_t^T to data/risk_cov_F.parquet.
     Save idiosyncratic stds sqrt(Δ_{ii}) to data/risk_delta.parquet.
+4.  (Optional) RiskModelValidator: compare predicted vs realized volatility of
+    CSI 300 market-cap portfolio. Output: plots/risk_model_validation.png,
+    result_risk_validation.txt. Set RUN_VALIDATION=True to enable.
 
 Output files (in data/)
 -----------------------
@@ -61,17 +64,23 @@ sys.path.insert(0, str(_RISK_DIR))
 
 from risk_factor_engine import RiskFactorEngine    # noqa: E402
 from cov_estimator      import CovarianceEstimator # noqa: E402
+from risk_model_validator import RiskModelValidator # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DATA_DIR = _ROOT / "data"
+DATA_DIR  = _ROOT / "data"
+PLOTS_DIR = _ROOT / "plots"
 
 # Rolling window for covariance and delta estimation
 COV_WINDOW   = 60   # trading days
 MIN_PERIODS  = 30   # minimum observations before outputting delta_std
 DELTA_FLOOR  = 2.5e-5   # (0.5% / day)^2 — lower bound on Δ_{ii}
 RIDGE        = 1e-6     # ridge regularisation added to F before Cholesky
+
+# Risk model validation (predicted vs realized volatility)
+RUN_VALIDATION   = True   # run validation after saving risk_*.parquet
+REALIZED_WINDOW  = 20     # rolling window for realized variance (days)
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +206,60 @@ def main() -> None:
     print(f"\n  Dates with F_half  : {n_dates_F}")
     print(f"  Dates with delta   : {n_dates_d}")
 
+    # -----------------------------------------------------------------------
+    # 5. Risk model validation (predicted vs realized volatility)
+    # -----------------------------------------------------------------------
+    result_validation = _ROOT / "result_risk_validation.txt"
+    if RUN_VALIDATION:
+        _step("Step 4 / 4  —  Risk Model Validation")
+
+        validator = RiskModelValidator(
+            prices_df=prices_df,
+            meta_df=meta_df,
+            exposure_df=exposure_df,
+            f_half_df=f_half_df,
+            delta_df=delta_df,
+            realized_window=REALIZED_WINDOW,
+        )
+        pred_var, real_var, metrics = validator.run_validation()
+
+        _ok(f"Validation complete: {metrics.get('N_days', 0)} days aligned")
+        print(
+            f"\n  Metrics:\n"
+            f"    R² (realized ~ predicted) : {metrics.get('R2', float('nan'))}\n"
+            f"    Pearson correlation       : {metrics.get('Pearson_corr', float('nan'))}\n"
+            f"    Spearman correlation      : {metrics.get('Spearman_corr', float('nan'))}\n"
+            f"    Bias ratio (pred/real)    : {metrics.get('Bias_ratio', float('nan'))}\n"
+            f"    RMSE (variance)           : {metrics.get('RMSE_var', float('nan'))}\n"
+            f"    RMSE (volatility)         : {metrics.get('RMSE_vol', float('nan'))}"
+        )
+
+        PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+        validator.plot(
+            predicted_var=pred_var,
+            realized_var=real_var,
+            save_path=str(PLOTS_DIR / "risk_model_validation.png"),
+        )
+        _ok(f"Saved plot: {PLOTS_DIR / 'risk_model_validation.png'}")
+
+        # Write validation report
+        report_lines = [
+            "Risk Model Validation Report",
+            "=" * 50,
+            f"Realized window : {REALIZED_WINDOW} days",
+            f"N days aligned  : {metrics.get('N_days', 0)}",
+            "",
+            "Metrics:",
+            f"  R² (realized ~ predicted) : {metrics.get('R2', float('nan'))}",
+            f"  Pearson correlation       : {metrics.get('Pearson_corr', float('nan'))}",
+            f"  Spearman correlation      : {metrics.get('Spearman_corr', float('nan'))}",
+            f"  Bias ratio (pred/real)    : {metrics.get('Bias_ratio', float('nan'))}",
+            f"  RMSE (variance)           : {metrics.get('RMSE_var', float('nan'))}",
+            f"  RMSE (volatility)         : {metrics.get('RMSE_vol', float('nan'))}",
+        ]
+        result_validation.write_text("\n".join(report_lines), encoding="utf-8")
+        _ok(f"Saved report: {result_validation}")
+
     elapsed = time.time() - t0
     _step(f"Done  —  total time {elapsed / 60:.1f} min")
 
@@ -206,6 +269,9 @@ def main() -> None:
         f"    {out_f}\n"
         f"    {out_delta}"
     )
+    if RUN_VALIDATION:
+        print(f"    {PLOTS_DIR / 'risk_model_validation.png'}\n"
+              f"    {result_validation}")
     print(
         "\n  Next step:\n"
         "    Set USE_RISK_MODEL = True in src/portfolio/optimization_main.py\n"

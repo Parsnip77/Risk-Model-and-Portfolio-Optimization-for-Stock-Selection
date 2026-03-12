@@ -119,9 +119,9 @@ SOLVER: str | None = "CLARABEL"  # None = cvxpy default (CLARABEL)
 # --- Style factor neutrality (requires USE_RISK_MODEL) ----------------------
 USE_STYLE_NEUTRAL: bool = True   # True = add |w_active' X_factor| <= tol constraints
 # STYLE_FACTORS: list[str] = ["size", "beta", "momentum", "volatility", "value"]
-# critic values: size: 0.45, beta: 0.01, momentum: 0.01, volatility: 0.60, value 0.50: 
-STYLE_FACTORS: list[str] = ["value"]
-STYLE_TOL: float = 0.50   # absolute tolerance per factor (z-score units)
+# critic values: size: 0.45, beta: 0.01, momentum: 0.01, volatility: 0.60, value: 0.50
+STYLE_FACTORS: list[str] = []
+STYLE_TOL: float = 0.00   # absolute tolerance per factor (z-score units)
 
 # ---------------------------------------------------------------------------
 # Console helpers

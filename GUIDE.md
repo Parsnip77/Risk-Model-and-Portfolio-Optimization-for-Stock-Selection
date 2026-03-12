@@ -347,9 +347,37 @@
 
 ---
 
-### 13. src/risk_model/risk_model_main.py
+### 13. src/risk_model/risk_model_validator.py
 
-- **用途**：第三阶段端到端总脚本，串联 `RiskFactorEngine` 与 `CovarianceEstimator`，输出三个 Parquet 文件。
+- **用途**：验证风险模型预测能力，对比沪深 300 市值加权组合的预测波动率与已实现波动率。
+
+- **核心方法**：
+
+  | 方法 | 说明 |
+  |------|------|
+  | `run_validation()` | 返回 (predicted_var, realized_var, metrics_dict) |
+  | `plot(predicted_var, realized_var, save_path, show)` | 绘制时序图 + 散点图 |
+
+- **评估指标**：
+
+  | 指标 | 计算公式 | 含义 | 参考标准 |
+  |------|----------|------|----------|
+  | **R²** | 线性回归 realized ~ predicted 的 $r^2$ | 预测方差对已实现方差的解释度 | > 0.4 较好，0.2~0.4 中等 |
+  | **Pearson 相关系数** | $\text{corr}(\sigma^2_{\text{pred}}, \sigma^2_{\text{real}})$ | 线性相关强度 | > 0.6 较好 |
+  | **Spearman 相关系数** | 秩相关 | 排序一致性，对异常值稳健 | 通常略高于 Pearson |
+  | **Bias ratio** | $\overline{\sigma^2_{\text{pred}}} / \overline{\sigma^2_{\text{real}}}$ | 预测均值与已实现均值之比 | 接近 1 为无偏，0.95~1.05 较好 |
+  | **RMSE (variance)** | $\sqrt{\text{mean}((\sigma^2_{\text{pred}} - \sigma^2_{\text{real}})^2)}$ | 方差空间的均方根误差 | 越小越好，结合量级判断 |
+  | **RMSE (volatility)** | $\sqrt{\text{mean}((\sqrt{\sigma^2_{\text{pred}}} - \sqrt{\sigma^2_{\text{real}}})^2)}$ | 波动率空间的均方根误差 | 越小越好 |
+
+- **图表解读**：时序图两条曲线越接近表示预测越准；散点图点越靠近 y=x 表示拟合越好；点整体在 y=x 上方为高估，下方为低估。
+
+- **使用**：由 `risk_model_main.py` 在保存 parquet 后自动调用，一般不单独使用。
+
+---
+
+### 14. src/risk_model/risk_model_main.py
+
+- **用途**：第三阶段端到端总脚本，串联 `RiskFactorEngine` 与 `CovarianceEstimator`，输出三个 Parquet 文件；可选执行 `RiskModelValidator` 验证。
 
 - **输出文件**：
 
@@ -358,8 +386,10 @@
   | `risk_exposure.parquet` | 长表 | (trade_date, ts_code, size, beta, momentum, volatility, value, ind_*) |
   | `risk_cov_F.parquet` | 长表 | (trade_date, f_i, f_j, value) — Cholesky 因子 L_t^T 元素 |
   | `risk_delta.parquet` | 长表 | (trade_date, ts_code, delta_std) — sqrt(Δ_{ii}) |
+  | `plots/risk_model_validation.png` | 图 | 预测 vs 已实现波动率（RUN_VALIDATION=True 时） |
+  | `result_risk_validation.txt` | 报告 | 验证指标（RUN_VALIDATION=True 时） |
 
-- **可调配置**：`COV_WINDOW=60`、`MIN_PERIODS=30`、`DELTA_FLOOR=2.5e-5`、`RIDGE=1e-6`。
+- **可调配置**：`COV_WINDOW=60`、`MIN_PERIODS=30`、`DELTA_FLOOR=2.5e-5`、`RIDGE=1e-6`、`RUN_VALIDATION=True`、`REALIZED_WINDOW=20`。
 
 - **使用**：
   ```bash
@@ -371,7 +401,7 @@
 
 ---
 
-### 14. src/portfolio/ic_analyzer.py
+### 15. src/portfolio/ic_analyzer.py
 
 - **用途**：因子 IC（信息系数）评估模块，衡量因子值与未来收益率的截面相关性。
 
@@ -394,7 +424,7 @@
 
 ---
 
-### 15. src/portfolio/backtester.py
+### 16. src/portfolio/backtester.py
 
 - **用途**：分层回测模块，封装为 `LayeredBacktester` 类。支持全截面与行业中性两种分组模式。
 
@@ -423,7 +453,7 @@
 
 ---
 
-### 16. src/portfolio/net_backtester.py
+### 17. src/portfolio/net_backtester.py
 
 - **用途**：纯多头净收益回测模块，封装为 `NetReturnBacktester` 类。支持全截面与行业中性两种选股模式，含摩擦成本、换手率、盈亏平衡换手率。
 
@@ -449,7 +479,7 @@
 
 ---
 
-### 17. src/portfolio/optimizer.py
+### 18. src/portfolio/optimizer.py
 
 - **用途**：凸优化组合求解器，封装为 `PortfolioOptimizer` 类。求解 LP（无风险模型）或 SOCP（有风险模型）。
 
@@ -478,7 +508,7 @@
 
 ---
 
-### 18. src/portfolio/optimization_backtester.py
+### 19. src/portfolio/optimization_backtester.py
 
 - **用途**：逐日调用 `PortfolioOptimizer` 的纯多头回测，支持重叠组合逻辑与风险模型集成，计算净收益与绩效指标。
 
@@ -496,7 +526,7 @@
 
 ---
 
-### 19. src/portfolio/optimization_main.py
+### 20. src/portfolio/optimization_main.py
 
 - **用途**：第四阶段端到端总脚本，串联数据加载 → 凸优化回测 → 报告与图表输出。
 
@@ -534,7 +564,7 @@
 
 ---
 
-### 20. data/stock_data.db
+### 21. data/stock_data.db
 
 - **用途**：本地 SQLite 数据库，存储 7 张表（见 data_loader 说明）。
 - **生成方式**：由 `DataEngine.init_db()` + `download_data()` 自动生成。
@@ -542,7 +572,7 @@
 
 ---
 
-### 21. data/*.parquet
+### 22. data/*.parquet
 
 - **用途**：各阶段导出的 Parquet 宽表/长表，供下游阶段读取。
 - **主要文件**：
@@ -561,7 +591,7 @@
 
 ---
 
-### 22. plots/, result_*.txt
+### 23. plots/, result_*.txt
 
 * 用途：各阶段结果图标、数据分析报告
 
@@ -574,6 +604,8 @@
   | `plots/ml_alpha_net.png`       | ml_analyze_main.py   | 净收益回测累计净值图  |
   | `plots/feature_importance.png` | ml_analyze_main.py   | 特征重要性条形图      |
   | `plots/shap_beeswarm.png`      | ml_analyze_main.py   | SHAP 蜂群图           |
+  | `plots/risk_model_validation.png` | risk_model_main.py | 预测 vs 已实现波动率  |
   | `plots/optimization_nav.png`   | optimization_main.py | 优化组合累计净值图    |
   | `result_ml.txt`                | ml_analyze_main.py   | ML 阶段文字报告       |
+  | `result_risk_validation.txt`   | risk_model_main.py   | 风险模型验证报告      |
   | `result_optimization.txt`      | optimization_main.py | 优化回测文字报告      |
