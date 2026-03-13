@@ -80,7 +80,7 @@ RIDGE        = 1e-6     # ridge regularisation added to F before Cholesky
 
 # Risk model validation (predicted vs realized volatility)
 RUN_VALIDATION   = True   # run validation after saving risk_*.parquet
-REALIZED_WINDOW  = 20     # rolling window for realized variance (days)
+REALIZED_WINDOW  = 60     # rolling window for realized variance (days)
 
 
 # ---------------------------------------------------------------------------

@@ -1,12 +1,12 @@
 Risk Model Validation Report
 ==================================================
-Realized window : 20 days
-N days aligned  : 1178
+Realized window : 60 days
+N days aligned  : 1154
 
 Metrics:
-  R² (realized ~ predicted) : 0.393922
-  Pearson correlation       : 0.627632
-  Spearman correlation      : 0.735924
-  Bias ratio (pred/real)    : 1.001824
-  RMSE (variance)           : 7.688e-05
-  RMSE (volatility)         : 0.002822
+  R² (realized ~ predicted) : 0.976937
+  Pearson correlation       : 0.988401
+  Spearman correlation      : 0.987658
+  Bias ratio (pred/real)    : 0.994306
+  RMSE (variance)           : 1.046e-05
+  RMSE (volatility)         : 0.000418

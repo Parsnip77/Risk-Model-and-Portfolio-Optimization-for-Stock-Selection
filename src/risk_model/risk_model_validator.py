@@ -54,7 +54,7 @@ class RiskModelValidator:
         exposure_df: pd.DataFrame,
         f_half_df: pd.DataFrame,
         delta_df: pd.DataFrame,
-        realized_window: int = 20,
+        realized_window: int = 60,
         min_stocks: int = 10,
     ) -> None:
         self.realized_window = realized_window
